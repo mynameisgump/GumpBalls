@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import type { ServerWebSocket } from "bun"
+import type { ServerWebSocket } from "bun";
 import {
   BALL_MAX_X,
   BALL_MAX_Y,
@@ -22,20 +22,20 @@ import {
   type DirKey,
   type ServerMsg,
   type Slot,
-} from "./shared"
+} from "./shared";
 
 type Ball = {
-  x: number
-  y: number
-  vx: number
-  vy: number
-  hp: number
-  charging: boolean
-  cx: number
-  cy: number
-}
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  hp: number;
+  charging: boolean;
+  cx: number;
+  cy: number;
+};
 
-type WSData = { slot: Slot | -1 }
+type WSData = { slot: Slot | -1 };
 
 function makeBall(slot: Slot): Ball {
   return {
@@ -47,15 +47,15 @@ function makeBall(slot: Slot): Ball {
     charging: false,
     cx: 0,
     cy: 0,
-  }
+  };
 }
 
-const balls: Ball[] = [makeBall(0), makeBall(1)]
-const sockets: (ServerWebSocket<WSData> | null)[] = [null, null]
-const spectators = new Set<ServerWebSocket<WSData>>()
-let status: "waiting" | "playing" | "ended" = "waiting"
-let winner: Slot | undefined
-let tick = 0
+const balls: Ball[] = [makeBall(0), makeBall(1)];
+const sockets: (ServerWebSocket<WSData> | null)[] = [null, null];
+const spectators = new Set<ServerWebSocket<WSData>>();
+let status: "waiting" | "playing" | "ended" = "waiting";
+let winner: Slot | undefined;
+let tick = 0;
 
 function snapshot(): BallSnap[] {
   return balls.map((b) => ({
@@ -67,239 +67,242 @@ function snapshot(): BallSnap[] {
     charging: b.charging,
     cx: b.cx,
     cy: b.cy,
-  }))
+  }));
 }
 
 function broadcast(msg: ServerMsg) {
-  const s = JSON.stringify(msg)
-  for (const ws of sockets) ws?.send(s)
-  for (const ws of spectators) ws.send(s)
+  const s = JSON.stringify(msg);
+  for (const ws of sockets) ws?.send(s);
+  for (const ws of spectators) ws.send(s);
 }
 
 function send(ws: ServerWebSocket<WSData>, msg: ServerMsg) {
-  ws.send(JSON.stringify(msg))
+  ws.send(JSON.stringify(msg));
 }
 
 function resetMatch() {
-  balls[0] = makeBall(0)
-  balls[1] = makeBall(1)
-  winner = undefined
-  tick = 0
-  status = sockets[0] && sockets[1] ? "playing" : "waiting"
+  balls[0] = makeBall(0);
+  balls[1] = makeBall(1);
+  winner = undefined;
+  tick = 0;
+  status = sockets[0] && sockets[1] ? "playing" : "waiting";
 }
 
 function applyDir(b: Ball, name: DirKey, shift: boolean) {
-  const step = CHARGE_STEP * (shift ? SHIFT_MULT : 1)
-  const diag = step / Math.SQRT2
-  let dx = 0
-  let dy = 0
+  const step = CHARGE_STEP * (shift ? SHIFT_MULT : 1);
+  const diag = step / Math.SQRT2;
+  let dx = 0;
+  let dy = 0;
   switch (name) {
     case "left":
     case "a":
-      dx = -step
-      break
+      dx = -step;
+      break;
     case "right":
     case "d":
-      dx = step
-      break
+      dx = step;
+      break;
     case "up":
     case "w":
-      dy = step
-      break
+      dy = step;
+      break;
     case "down":
     case "s":
-      dy = -step
-      break
+      dy = -step;
+      break;
     case "q":
-      dx = -diag
-      dy = diag
-      break
+      dx = -diag;
+      dy = diag;
+      break;
     case "e":
-      dx = diag
-      dy = diag
-      break
+      dx = diag;
+      dy = diag;
+      break;
     case "z":
-      dx = -diag
-      dy = -diag
-      break
+      dx = -diag;
+      dy = -diag;
+      break;
     case "c":
-      dx = diag
-      dy = -diag
-      break
+      dx = diag;
+      dy = -diag;
+      break;
   }
-  if (dx === 0 && dy === 0) return
+  if (dx === 0 && dy === 0) return;
   if (b.charging) {
-    b.cx += dx
-    b.cy += dy
+    b.cx += dx;
+    b.cy += dy;
   } else {
-    b.vx += dx * BURST_SCALE
-    b.vy += dy * BURST_SCALE
+    b.vx += dx * BURST_SCALE;
+    b.vy += dy * BURST_SCALE;
   }
 }
 
 function applySpace(b: Ball) {
   if (b.charging) {
-    b.vx = b.cx
-    b.vy = b.cy
-    b.cx = 0
-    b.cy = 0
-    b.charging = false
+    b.vx = b.cx;
+    b.vy = b.cy;
+    b.cx = 0;
+    b.cy = 0;
+    b.charging = false;
   } else {
-    b.charging = true
-    b.cx = 0
-    b.cy = 0
-    b.vx = 0
-    b.vy = 0
+    b.charging = true;
+    b.cx = 0;
+    b.cy = 0;
+    b.vx = 0;
+    b.vy = 0;
   }
 }
 
 function physicsStep(dt: number) {
   for (const b of balls) {
-    if (b.charging) continue
-    b.vy += GRAVITY * dt
-    const fx = HORIZ_FRICTION * dt
-    if (b.vx > fx) b.vx -= fx
-    else if (b.vx < -fx) b.vx += fx
-    else b.vx = 0
-    b.x += b.vx * dt
-    b.y += b.vy * dt
+    if (b.charging) continue;
+    b.vy += GRAVITY * dt;
+    const fx = HORIZ_FRICTION * dt;
+    if (b.vx > fx) b.vx -= fx;
+    else if (b.vx < -fx) b.vx += fx;
+    else b.vx = 0;
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
 
     if (b.x < BALL_MIN_X) {
-      b.x = BALL_MIN_X
-      b.vx = -b.vx * 0.3
+      b.x = BALL_MIN_X;
+      b.vx = -b.vx * 0.3;
     } else if (b.x > BALL_MAX_X) {
-      b.x = BALL_MAX_X
-      b.vx = -b.vx * 0.3
+      b.x = BALL_MAX_X;
+      b.vx = -b.vx * 0.3;
     }
     if (b.y < BALL_MIN_Y) {
-      b.y = BALL_MIN_Y
-      b.vy = -b.vy * 0.3
+      b.y = BALL_MIN_Y;
+      b.vy = -b.vy * 0.3;
     } else if (b.y > BALL_MAX_Y) {
-      b.y = BALL_MAX_Y
-      b.vy = -b.vy * 0.3
+      b.y = BALL_MAX_Y;
+      b.vy = -b.vy * 0.3;
     }
   }
 
-  const [a, c] = balls
-  const dx = c.x - a.x
-  const dy = c.y - a.y
-  const dist = Math.hypot(dx, dy)
-  const minDist = BALL_R * 2
+  const [a, c] = balls;
+  const dx = c.x - a.x;
+  const dy = c.y - a.y;
+  const dist = Math.hypot(dx, dy);
+  const minDist = BALL_R * 2;
   if (dist > 0 && dist < minDist) {
-    const nx = dx / dist
-    const ny = dy / dist
-    const overlap = minDist - dist
-    a.x -= nx * overlap * 0.5
-    a.y -= ny * overlap * 0.5
-    c.x += nx * overlap * 0.5
-    c.y += ny * overlap * 0.5
+    const nx = dx / dist;
+    const ny = dy / dist;
+    const overlap = minDist - dist;
+    a.x -= nx * overlap * 0.5;
+    a.y -= ny * overlap * 0.5;
+    c.x += nx * overlap * 0.5;
+    c.y += ny * overlap * 0.5;
 
-    const rvx = c.vx - a.vx
-    const rvy = c.vy - a.vy
-    const closing = -(rvx * nx + rvy * ny)
+    const rvx = c.vx - a.vx;
+    const rvy = c.vy - a.vy;
+    const closing = -(rvx * nx + rvy * ny);
     if (closing > 0) {
-      const restitution = 0.9
-      const j = closing * (1 + restitution)
-      a.vx -= j * nx
-      a.vy -= j * ny
-      c.vx += j * nx
-      c.vy += j * ny
+      const restitution = 0.9;
+      const j = closing * (1 + restitution);
+      a.vx -= j * nx;
+      a.vy -= j * ny;
+      c.vx += j * nx;
+      c.vy += j * ny;
 
       if (closing > DMG_THRESHOLD) {
-        const dmg = (closing - DMG_THRESHOLD) * DMG_K
-        a.hp = Math.max(0, a.hp - dmg)
-        c.hp = Math.max(0, c.hp - dmg)
+        const dmg = (closing - DMG_THRESHOLD) * DMG_K;
+        a.hp = Math.max(0, a.hp - dmg);
+        c.hp = Math.max(0, c.hp - dmg);
       }
     }
   }
 
   if (status === "playing") {
-    const dead0 = balls[0].hp <= 0
-    const dead1 = balls[1].hp <= 0
+    const dead0 = balls[0].hp <= 0;
+    const dead1 = balls[1].hp <= 0;
     if (dead0 || dead1) {
-      status = "ended"
-      winner = dead0 && dead1 ? 0 : dead0 ? 1 : 0
-      broadcast({ t: "end", winner: winner! })
+      status = "ended";
+      winner = dead0 && dead1 ? 0 : dead0 ? 1 : 0;
+      broadcast({ t: "end", winner: winner! });
       setTimeout(() => {
-        if (status !== "ended") return
+        if (status !== "ended") return;
         if (sockets[0] && sockets[1]) {
-          resetMatch()
-          status = "playing"
-          console.log("auto-reset: new match")
+          resetMatch();
+          status = "playing";
+          console.log("auto-reset: new match");
         } else {
-          status = "waiting"
+          status = "waiting";
         }
-      }, 5000)
+      }, 5000);
     }
   }
 }
 
-const dt = 1 / TICK_HZ
-let snapAccum = 0
-const snapInterval = 1 / SNAP_HZ
+const dt = 1 / TICK_HZ;
+let snapAccum = 0;
+const snapInterval = 1 / SNAP_HZ;
 
 setInterval(() => {
-  if (status === "playing") physicsStep(dt)
-  snapAccum += dt
+  if (status === "playing") physicsStep(dt);
+  snapAccum += dt;
   if (snapAccum >= snapInterval) {
-    snapAccum = 0
-    tick++
-    broadcast({ t: "snap", tick, balls: snapshot(), status, winner })
+    snapAccum = 0;
+    tick++;
+    broadcast({ t: "snap", tick, balls: snapshot(), status, winner });
   }
-}, 1000 / TICK_HZ)
+}, 1000 / TICK_HZ);
+
+const hostname = "0.0.0.0";
 
 const server = Bun.serve<WSData>({
+  hostname,
   port: PORT,
   fetch(req, srv) {
-    if (srv.upgrade(req, { data: { slot: -1 } })) return
-    return new Response("term_phys_ball server", { status: 200 })
+    if (srv.upgrade(req, { data: { slot: -1 } })) return;
+    return new Response("term_phys_ball server", { status: 200 });
   },
   websocket: {
     open(ws) {
-      let assigned: Slot | -1 = -1
+      let assigned: Slot | -1 = -1;
       if (!sockets[0]) {
-        sockets[0] = ws
-        assigned = 0
+        sockets[0] = ws;
+        assigned = 0;
       } else if (!sockets[1]) {
-        sockets[1] = ws
-        assigned = 1
+        sockets[1] = ws;
+        assigned = 1;
       } else {
-        spectators.add(ws)
+        spectators.add(ws);
       }
-      ws.data.slot = assigned
-      send(ws, { t: "slot", n: assigned })
-      console.log(`open: slot=${assigned}`)
+      ws.data.slot = assigned;
+      send(ws, { t: "slot", n: assigned });
+      console.log(`open: slot=${assigned}`);
       if (sockets[0] && sockets[1] && status !== "playing") {
-        resetMatch()
-        status = "playing"
+        resetMatch();
+        status = "playing";
       }
     },
     message(ws, raw) {
-      let msg: ClientMsg
+      let msg: ClientMsg;
       try {
-        msg = JSON.parse(typeof raw === "string" ? raw : raw.toString())
+        msg = JSON.parse(typeof raw === "string" ? raw : raw.toString());
       } catch {
-        return
+        return;
       }
-      const slot = ws.data.slot
-      if (slot < 0) return
-      const b = balls[slot]
-      if (status !== "playing") return
-      if (msg.t === "dir") applyDir(b, msg.name, msg.shift)
-      else if (msg.t === "space") applySpace(b)
+      const slot = ws.data.slot;
+      if (slot < 0) return;
+      const b = balls[slot];
+      if (status !== "playing") return;
+      if (msg.t === "dir") applyDir(b, msg.name, msg.shift);
+      else if (msg.t === "space") applySpace(b);
     },
     close(ws) {
-      const slot = ws.data.slot
+      const slot = ws.data.slot;
       if (slot >= 0) {
-        sockets[slot] = null
-        console.log(`close: slot=${slot}`)
-        status = "waiting"
-        resetMatch()
+        sockets[slot] = null;
+        console.log(`close: slot=${slot}`);
+        status = "waiting";
+        resetMatch();
       } else {
-        spectators.delete(ws)
+        spectators.delete(ws);
       }
     },
   },
-})
+});
 
-console.log(`listening on ws://localhost:${server.port}`)
+console.log(`listening on ws://${hostname}:${server.port}`);
