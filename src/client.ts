@@ -384,28 +384,20 @@ function connect() {
       setBanner();
     } else if (msg.t === "snap") {
       const prev = serverStatus;
-      const now = Date.now();
-      const snapDt = haveSnap ? Math.max(0.001, (now - lastSnapAt) / 1000) : 0;
       for (let i = 0; i < 2; i++) {
         const s = msg.balls[i];
         const b = localBalls[i];
         const isSelf = i === (mySlot as number);
-        if (!isSelf && haveSnap) {
-          b.vx = (s.x - b.x) / snapDt;
-          b.vy = (s.y - b.y) / snapDt;
-        }
         if (!isSelf || !haveSnap) {
           b.x = s.x;
           b.y = s.y;
-        }
-        if (!isSelf) {
           b.charging = s.charging;
           b.cx = s.cx;
           b.cy = s.cy;
         }
         b.hp = s.hp;
       }
-      lastSnapAt = now;
+      lastSnapAt = Date.now();
       haveSnap = true;
       serverFrame = msg.frame;
       serverStatus = msg.status;
@@ -537,7 +529,8 @@ const LOCAL_DT = 1 / TICK_HZ;
 setInterval(() => {
   if (!haveSnap) return;
   if (serverStatus !== "playing") return;
-  integrateBalls(localBalls, LOCAL_DT);
+  if (mySlot === -1) return;
+  integrateBalls([localBalls[mySlot]], LOCAL_DT);
 }, 1000 / TICK_HZ);
 
 renderer.setFrameCallback(async (deltaMs: number) => {
