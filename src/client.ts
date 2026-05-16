@@ -42,9 +42,14 @@ import {
   RIGHT_X,
   ROOM_H,
   ROOM_W,
+  TICK_HZ,
   WALL_T,
+  applyDir,
+  applySpace,
   decodeServerMsg,
   encodeClientMsg,
+  stepBallSolo,
+  type Ball,
   type BallSnap,
   type ClientMsg,
   type DirKey,
@@ -300,6 +305,32 @@ let lastKey = "-";
 let endedAt = 0;
 const RESET_MS = 5000;
 
+let localBall: Ball | null = null;
+let physAccum = 0;
+const FIXED_DT = 1 / TICK_HZ;
+
+function snapToLocal(s: BallSnap): Ball {
+  return {
+    x: s.x,
+    y: s.y,
+    vx: s.vx,
+    vy: s.vy,
+    hp: s.hp,
+    charging: s.charging,
+    cx: s.cx,
+    cy: s.cy,
+  };
+}
+
+function canAct(): boolean {
+  return (
+    mySlot >= 0 &&
+    localBall !== null &&
+    serverStatus === "playing" &&
+    localBall.hp > 0
+  );
+}
+
 function hpBar(hp: number, width = 20) {
   const filled = Math.round((hp / MAX_HP) * width);
   return "[" + "#".repeat(filled) + "-".repeat(width - filled) + "]";
@@ -390,6 +421,15 @@ function connect() {
         clearBlood();
         resetFx();
       }
+      if (mySlot >= 0) {
+        const mySnap = msg.balls[mySlot]!;
+        if (!localBall || prev !== serverStatus) {
+          localBall = snapToLocal(mySnap);
+          physAccum = 0;
+        } else {
+          localBall.hp = mySnap.hp;
+        }
+      }
       setBanner();
     } else if (msg.t === "hit") {
       fx[msg.victim].flash = 1;
@@ -433,12 +473,16 @@ renderer.keyInput.on("keypress", (k: KeyEvent) => {
   }
 
   if (k.name === "space") {
+    if (canAct()) applySpace(localBall!);
     sendMsg({ t: "space", seq: nextSeq++ });
     return;
   }
 
   const name = k.name ? DIR_NAMES[k.name] : undefined;
-  if (name) sendMsg({ t: "dir", seq: nextSeq++, name, shift: !!k.shift });
+  if (name) {
+    if (canAct()) applyDir(localBall!, name, !!k.shift);
+    sendMsg({ t: "dir", seq: nextSeq++, name, shift: !!k.shift });
+  }
 });
 
 renderer.on("resize", (w: number, h: number) => {
@@ -452,25 +496,41 @@ renderer.on("resize", (w: number, h: number) => {
 
 function updateScene(dt: number) {
   if (!lastSnap) return;
+
+  if (localBall && serverStatus === "playing" && localBall.hp > 0) {
+    physAccum += dt;
+    while (physAccum >= FIXED_DT) {
+      stepBallSolo(localBall, FIXED_DT);
+      physAccum -= FIXED_DT;
+    }
+  }
+
   for (let i = 0; i < 2; i++) {
-    const s = lastSnap[i];
+    const snap = lastSnap[i];
+    const useLocal = i === mySlot && localBall !== null;
+    const sx = useLocal ? localBall!.x : snap.x;
+    const sy = useLocal ? localBall!.y : snap.y;
+    const sCharging = useLocal ? localBall!.charging : snap.charging;
+    const sCx = useLocal ? localBall!.cx : snap.cx;
+    const sCy = useLocal ? localBall!.cy : snap.cy;
+
     const mesh = ballMeshes[i];
-    mesh.position.set(s.x, s.y, 0);
+    mesh.position.set(sx, sy, 0);
     const f = fx[i];
     if (f.flash > 0) f.flash = Math.max(0, f.flash - dt / FLASH_DECAY);
     if (f.punch > 0) f.punch = Math.max(0, f.punch - dt / PUNCH_DECAY);
-    const base = s.charging ? P_CHARGE[i] : P_COLORS[i];
+    const base = sCharging ? P_CHARGE[i] : P_COLORS[i];
     const mat = ballMats[i];
     mat.color.setHex(base);
     mat.emissiveIntensity = f.flash * 3;
     mesh.scale.setScalar(1 + f.punch * PUNCH_MAX_SCALE);
 
     const a = arrows[i];
-    const len = Math.hypot(s.cx, s.cy);
-    if (s.charging && len > 1e-3 && mesh.visible) {
+    const len = Math.hypot(sCx, sCy);
+    if (sCharging && len > 1e-3 && mesh.visible) {
       a.visible = true;
       a.position.copy(mesh.position);
-      a.setDirection(new Vector3(s.cx, s.cy, 0).normalize());
+      a.setDirection(new Vector3(sCx, sCy, 0).normalize());
       const visLen = Math.min(len * 0.18, 5);
       a.setLength(
         visLen,

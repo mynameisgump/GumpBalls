@@ -18,8 +18,8 @@ export const BALL_MAX_Y = CEIL_Y - WALL_T / 2 - BALL_R;
 export const BALL_MIN_X = LEFT_X + WALL_T / 2 + BALL_R;
 export const BALL_MAX_X = RIGHT_X - WALL_T / 2 - BALL_R;
 
-export const TICK_HZ = 60;
-export const SNAP_HZ = 60;
+export const TICK_HZ = 120;
+export const SNAP_HZ = 120;
 export const MAX_HP = 100;
 export const DMG_THRESHOLD = 3;
 export const DMG_K = 2.5;
@@ -160,33 +160,35 @@ export function applySpace(b: Ball) {
   }
 }
 
-export function physicsStep(balls: Ball[], dt: number): HitEvent | null {
-  for (const b of balls) {
-    if (b.charging) continue;
-    if (b.hp <= 0) continue;
-    b.vy += GRAVITY * dt;
-    const fx = HORIZ_FRICTION * dt;
-    if (b.vx > fx) b.vx -= fx;
-    else if (b.vx < -fx) b.vx += fx;
-    else b.vx = 0;
-    b.x += b.vx * dt;
-    b.y += b.vy * dt;
+export function stepBallSolo(b: Ball, dt: number): void {
+  if (b.charging) return;
+  if (b.hp <= 0) return;
+  b.vy += GRAVITY * dt;
+  const fx = HORIZ_FRICTION * dt;
+  if (b.vx > fx) b.vx -= fx;
+  else if (b.vx < -fx) b.vx += fx;
+  else b.vx = 0;
+  b.x += b.vx * dt;
+  b.y += b.vy * dt;
 
-    if (b.x < BALL_MIN_X) {
-      b.x = BALL_MIN_X;
-      b.vx = -b.vx * 0.3;
-    } else if (b.x > BALL_MAX_X) {
-      b.x = BALL_MAX_X;
-      b.vx = -b.vx * 0.3;
-    }
-    if (b.y < BALL_MIN_Y) {
-      b.y = BALL_MIN_Y;
-      b.vy = -b.vy * 0.3;
-    } else if (b.y > BALL_MAX_Y) {
-      b.y = BALL_MAX_Y;
-      b.vy = -b.vy * 0.3;
-    }
+  if (b.x < BALL_MIN_X) {
+    b.x = BALL_MIN_X;
+    b.vx = -b.vx * 0.3;
+  } else if (b.x > BALL_MAX_X) {
+    b.x = BALL_MAX_X;
+    b.vx = -b.vx * 0.3;
   }
+  if (b.y < BALL_MIN_Y) {
+    b.y = BALL_MIN_Y;
+    b.vy = -b.vy * 0.3;
+  } else if (b.y > BALL_MAX_Y) {
+    b.y = BALL_MAX_Y;
+    b.vy = -b.vy * 0.3;
+  }
+}
+
+export function physicsStep(balls: Ball[], dt: number): HitEvent | null {
+  for (const b of balls) stepBallSolo(b, dt);
 
   const [a, c] = balls;
   const dx = c.x - a.x;
