@@ -13,6 +13,7 @@ Gump balls
 - Use weird snowman flesh thing texture for balls
 - Use a grey metal grate texture for the box
 - Maybe add a parry move?
+- Add Rollback?
 
 # Claude Ideas:
 
@@ -41,3 +42,5 @@ Vampire — heals % of dmg dealt.
 Berserker — dmg scales as own HP drops.
 Magnet — passive pull on opponent when charging.
 Cheapest first pick: 2-3 stat-twist classes. Parry + Bomber best ability additions, both extend charge mech already there.
+
+-
