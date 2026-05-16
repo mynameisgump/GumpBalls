@@ -13,7 +13,10 @@ Gump balls
 - Use weird snowman flesh thing texture for balls
 - Use a grey metal grate texture for the box
 - Maybe add a parry move?
-- Add Rollback?
+- Add Rollback netcode?
+
+- Add 3d characters
+- Title Select screen
 
 # Claude Ideas:
 

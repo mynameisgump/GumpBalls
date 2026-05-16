@@ -156,6 +156,7 @@ function applySpace(b: Ball) {
 function physicsStep(dt: number) {
   for (const b of balls) {
     if (b.charging) continue;
+    if (b.hp <= 0) continue;
     b.vy += GRAVITY * dt;
     const fx = HORIZ_FRICTION * dt;
     if (b.vx > fx) b.vx -= fx;
@@ -185,7 +186,7 @@ function physicsStep(dt: number) {
   const dy = c.y - a.y;
   const dist = Math.hypot(dx, dy);
   const minDist = BALL_R * 2;
-  if (dist > 0 && dist < minDist) {
+  if (a.hp > 0 && c.hp > 0 && dist > 0 && dist < minDist) {
     const nx = dx / dist;
     const ny = dy / dist;
     const overlap = minDist - dist;
@@ -243,7 +244,7 @@ let snapAccum = 0;
 const snapInterval = 1 / SNAP_HZ;
 
 setInterval(() => {
-  if (status === "playing") physicsStep(dt);
+  if (status === "playing" || status === "ended") physicsStep(dt);
   snapAccum += dt;
   if (snapAccum >= snapInterval) {
     snapAccum = 0;
@@ -291,7 +292,9 @@ const server = Bun.serve<WSData>({
       const slot = ws.data.slot;
       if (slot < 0) return;
       const b = balls[slot];
-      if (status !== "playing") return;
+      if (status === "waiting") return;
+      if (status === "ended" && slot !== winner) return;
+      if (b.hp <= 0) return;
       if (msg.t === "dir") applyDir(b, msg.name, msg.shift);
       else if (msg.t === "space") applySpace(b);
     },
