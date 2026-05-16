@@ -23,6 +23,9 @@ Gump balls
   - Maybe have a smash style camera??
   -
 
+- Should probably refactor
+  - Currently
+
 # Claude Ideas:
 
 Game = 2-ball physics duel. Charge dir, release for burst. Collision speed → dmg. Existing mech: gravity, friction, wall bounce, HP 100.

@@ -30,6 +30,8 @@ export type Slot = 0 | 1;
 export type BallSnap = {
   x: number;
   y: number;
+  vx: number;
+  vy: number;
   hp: number;
   charging: boolean;
   cx: number;
@@ -40,6 +42,8 @@ export type ServerMsg =
   | { t: "slot"; n: Slot | -1 }
   | {
       t: "snap";
+      tick: number;
+      ack: [number, number];
       balls: BallSnap[];
       status: "waiting" | "playing" | "ended";
       winner?: Slot;
@@ -62,8 +66,8 @@ export type DirKey =
 
 export type ClientMsg =
   | { t: "hello" }
-  | { t: "dir"; name: DirKey; shift: boolean }
-  | { t: "space" };
+  | { t: "dir"; seq: number; name: DirKey; shift: boolean }
+  | { t: "space"; seq: number };
 
 export type Ball = {
   x: number;
@@ -269,8 +273,9 @@ export const DIR_INDEX: Record<DirKey, number> = DIR_LIST.reduce(
 const STATUS_CODE = { waiting: 0, playing: 1, ended: 2 } as const;
 const STATUS_NAME = ["waiting", "playing", "ended"] as const;
 
-const BALL_BYTES = 4 * 5 + 1;
-const SNAP_BYTES = 1 + 1 + 1 + 2 * BALL_BYTES;
+const BALL_BYTES = 4 * 7 + 1;
+const SNAP_HEADER_BYTES = 1 + 1 + 1 + 4 + 4 + 4;
+const SNAP_BYTES = SNAP_HEADER_BYTES + 2 * BALL_BYTES;
 
 export function encodeServerMsg(m: ServerMsg): ArrayBuffer {
   switch (m.t) {
@@ -291,10 +296,20 @@ export function encodeServerMsg(m: ServerMsg): ArrayBuffer {
       o += 1;
       v.setUint8(o, m.winner === undefined ? 255 : m.winner);
       o += 1;
+      v.setUint32(o, m.tick >>> 0, true);
+      o += 4;
+      v.setUint32(o, m.ack[0] >>> 0, true);
+      o += 4;
+      v.setUint32(o, m.ack[1] >>> 0, true);
+      o += 4;
       for (const b of m.balls) {
         v.setFloat32(o, b.x, true);
         o += 4;
         v.setFloat32(o, b.y, true);
+        o += 4;
+        v.setFloat32(o, b.vx, true);
+        o += 4;
+        v.setFloat32(o, b.vy, true);
         o += 4;
         v.setFloat32(o, b.hp, true);
         o += 4;
@@ -338,11 +353,21 @@ export function decodeServerMsg(data: ArrayBuffer): ServerMsg | null {
       const w = v.getUint8(o);
       o += 1;
       const winner = w === 255 ? undefined : (w as Slot);
+      const tick = v.getUint32(o, true);
+      o += 4;
+      const ack0 = v.getUint32(o, true);
+      o += 4;
+      const ack1 = v.getUint32(o, true);
+      o += 4;
       const balls: BallSnap[] = [];
       for (let i = 0; i < 2; i++) {
         const x = v.getFloat32(o, true);
         o += 4;
         const y = v.getFloat32(o, true);
+        o += 4;
+        const vx = v.getFloat32(o, true);
+        o += 4;
+        const vy = v.getFloat32(o, true);
         o += 4;
         const hp = v.getFloat32(o, true);
         o += 4;
@@ -352,9 +377,9 @@ export function decodeServerMsg(data: ArrayBuffer): ServerMsg | null {
         o += 4;
         const cy = v.getFloat32(o, true);
         o += 4;
-        balls.push({ x, y, hp, charging, cx, cy });
+        balls.push({ x, y, vx, vy, hp, charging, cx, cy });
       }
-      return { t: "snap", balls, status, winner };
+      return { t: "snap", tick, ack: [ack0, ack1], balls, status, winner };
     }
     case MSG.HIT: {
       const attacker = v.getUint8(1) as Slot;
@@ -374,16 +399,19 @@ export function encodeClientMsg(m: ClientMsg): ArrayBuffer {
       return buf;
     }
     case "dir": {
-      const buf = new ArrayBuffer(3);
+      const buf = new ArrayBuffer(7);
       const v = new DataView(buf);
       v.setUint8(0, MSG.DIR);
       v.setUint8(1, DIR_INDEX[m.name]);
       v.setUint8(2, m.shift ? 1 : 0);
+      v.setUint32(3, m.seq >>> 0, true);
       return buf;
     }
     case "space": {
-      const buf = new ArrayBuffer(1);
-      new DataView(buf).setUint8(0, MSG.SPACE);
+      const buf = new ArrayBuffer(5);
+      const v = new DataView(buf);
+      v.setUint8(0, MSG.SPACE);
+      v.setUint32(1, m.seq >>> 0, true);
       return buf;
     }
   }
@@ -397,15 +425,19 @@ export function decodeClientMsg(data: ArrayBuffer): ClientMsg | null {
     case MSG.HELLO:
       return { t: "hello" };
     case MSG.DIR: {
-      if (data.byteLength < 3) return null;
+      if (data.byteLength < 7) return null;
       const idx = v.getUint8(1);
       const name = DIR_LIST[idx];
       if (!name) return null;
       const shift = v.getUint8(2) !== 0;
-      return { t: "dir", name, shift };
+      const seq = v.getUint32(3, true);
+      return { t: "dir", seq, name, shift };
     }
-    case MSG.SPACE:
-      return { t: "space" };
+    case MSG.SPACE: {
+      if (data.byteLength < 5) return null;
+      const seq = v.getUint32(1, true);
+      return { t: "space", seq };
+    }
   }
   return null;
 }

@@ -421,6 +421,8 @@ const DIR_NAMES: Record<string, DirKey> = {
   c: "c",
 };
 
+let nextSeq = 1;
+
 renderer.keyInput.on("keypress", (k: KeyEvent) => {
   if (k.eventType === "repeat") return;
   lastKey = `${k.name ?? "?"}${k.shift ? "+S" : ""}${k.ctrl ? "+C" : ""}`;
@@ -431,12 +433,12 @@ renderer.keyInput.on("keypress", (k: KeyEvent) => {
   }
 
   if (k.name === "space") {
-    sendMsg({ t: "space" });
+    sendMsg({ t: "space", seq: nextSeq++ });
     return;
   }
 
   const name = k.name ? DIR_NAMES[k.name] : undefined;
-  if (name) sendMsg({ t: "dir", name, shift: !!k.shift });
+  if (name) sendMsg({ t: "dir", seq: nextSeq++, name, shift: !!k.shift });
 });
 
 renderer.on("resize", (w: number, h: number) => {

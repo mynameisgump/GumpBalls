@@ -24,11 +24,15 @@ const spectators = new Set<ServerWebSocket<WSData>>();
 let status: "waiting" | "playing" | "ended" = "waiting";
 let winner: Slot | undefined;
 let hitstopUntil = 0;
+let simTick = 0;
+const lastAckSeq: [number, number] = [0, 0];
 
 function snapshot(): BallSnap[] {
   return balls.map((b) => ({
     x: b.x,
     y: b.y,
+    vx: b.vx,
+    vy: b.vy,
     hp: b.hp,
     charging: b.charging,
     cx: b.cx,
@@ -51,6 +55,8 @@ function resetMatch() {
   balls[1] = makeBall(1);
   winner = undefined;
   hitstopUntil = 0;
+  lastAckSeq[0] = 0;
+  lastAckSeq[1] = 0;
   status = sockets[0] && sockets[1] ? "playing" : "waiting";
 }
 
@@ -85,11 +91,21 @@ let snapAccum = 0;
 const snapInterval = 1 / SNAP_HZ;
 
 setInterval(() => {
-  if ((status === "playing" || status === "ended") && Date.now() >= hitstopUntil) tick(dt);
+  if ((status === "playing" || status === "ended") && Date.now() >= hitstopUntil) {
+    tick(dt);
+    simTick++;
+  }
   snapAccum += dt;
   if (snapAccum >= snapInterval) {
     snapAccum = 0;
-    broadcast({ t: "snap", balls: snapshot(), status, winner });
+    broadcast({
+      t: "snap",
+      tick: simTick,
+      ack: [lastAckSeq[0], lastAckSeq[1]],
+      balls: snapshot(),
+      status,
+      winner,
+    });
   }
 }, 1000 / TICK_HZ);
 
@@ -131,14 +147,20 @@ const server = Bun.serve<WSData>({
       ) as ArrayBuffer;
       const msg = decodeClientMsg(ab);
       if (!msg) return;
-      const slot = ws.data.slot;
-      if (slot < 0) return;
-      const b = balls[slot];
+      const rawSlot = ws.data.slot;
+      if (rawSlot < 0) return;
+      const slot = rawSlot as Slot;
+      const b = balls[slot]!;
       if (status === "waiting") return;
       if (status === "ended" && slot !== winner) return;
       if (b.hp <= 0) return;
-      if (msg.t === "dir") applyDir(b, msg.name, msg.shift);
-      else if (msg.t === "space") applySpace(b);
+      if (msg.t === "dir") {
+        applyDir(b, msg.name, msg.shift);
+        if (msg.seq > lastAckSeq[slot]) lastAckSeq[slot] = msg.seq;
+      } else if (msg.t === "space") {
+        applySpace(b);
+        if (msg.seq > lastAckSeq[slot]) lastAckSeq[slot] = msg.seq;
+      }
     },
     close(ws) {
       const slot = ws.data.slot;
