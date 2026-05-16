@@ -56,6 +56,7 @@ const spectators = new Set<ServerWebSocket<WSData>>();
 let status: "waiting" | "playing" | "ended" = "waiting";
 let winner: Slot | undefined;
 let tick = 0;
+let hitstopUntil = 0;
 
 function snapshot(): BallSnap[] {
   return balls.map((b) => ({
@@ -85,6 +86,7 @@ function resetMatch() {
   balls[1] = makeBall(1);
   winner = undefined;
   tick = 0;
+  hitstopUntil = 0;
   status = sockets[0] && sockets[1] ? "playing" : "waiting";
 }
 
@@ -209,10 +211,23 @@ function physicsStep(dt: number) {
       c.vy += j * ny;
 
       if (closing > DMG_THRESHOLD) {
+        let attacker: Slot | undefined;
+        let victim: Slot | undefined;
+        let dmg = 0;
         if (speedA > speedC) {
-          c.hp = Math.max(0, c.hp - (speedA - DMG_THRESHOLD) * DMG_K);
+          dmg = (speedA - DMG_THRESHOLD) * DMG_K;
+          c.hp = Math.max(0, c.hp - dmg);
+          attacker = 0;
+          victim = 1;
         } else if (speedC > speedA) {
-          a.hp = Math.max(0, a.hp - (speedC - DMG_THRESHOLD) * DMG_K);
+          dmg = (speedC - DMG_THRESHOLD) * DMG_K;
+          a.hp = Math.max(0, a.hp - dmg);
+          attacker = 1;
+          victim = 0;
+        }
+        if (attacker !== undefined && victim !== undefined && dmg > 0) {
+          broadcast({ t: "hit", attacker, victim, dmg });
+          hitstopUntil = Date.now() + Math.min(20 + dmg * 4, 120);
         }
       }
     }
@@ -244,7 +259,7 @@ let snapAccum = 0;
 const snapInterval = 1 / SNAP_HZ;
 
 setInterval(() => {
-  if (status === "playing" || status === "ended") physicsStep(dt);
+  if ((status === "playing" || status === "ended") && Date.now() >= hitstopUntil) physicsStep(dt);
   snapAccum += dt;
   if (snapAccum >= snapInterval) {
     snapAccum = 0;

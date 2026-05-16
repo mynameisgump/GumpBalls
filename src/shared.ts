@@ -42,6 +42,7 @@ export type ServerMsg =
   | { t: "slot"; n: Slot | -1 }
   | { t: "snap"; tick: number; balls: BallSnap[]; status: "waiting" | "playing" | "ended"; winner?: Slot }
   | { t: "end"; winner: Slot }
+  | { t: "hit"; attacker: Slot; victim: Slot; dmg: number }
 
 export type DirKey =
   | "left"

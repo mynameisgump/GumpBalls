@@ -17,6 +17,7 @@ Gump balls
 
 - Add 3d characters
 - Title Select screen
+- Make camera look at center point
 
 # Claude Ideas:
 

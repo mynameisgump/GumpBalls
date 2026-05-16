@@ -134,6 +134,8 @@ function makeBallMat(color: number) {
     roughness: 0.5,
   })
   mat.color.setHex(color)
+  mat.emissive.setHex(0xffffff)
+  mat.emissiveIntensity = 0
   const n = mx_noise_float(positionLocal.mul(noiseFreq).add(time.mul(noiseSpeed)))
   mat.positionNode = positionLocal.add(normalLocal.mul(n).mul(noiseIntensity))
   return mat
@@ -304,6 +306,22 @@ function setBanner() {
   }
 }
 
+const fx = [
+  { flash: 0, punch: 0 },
+  { flash: 0, punch: 0 },
+]
+const FLASH_DECAY = 0.07
+const PUNCH_DECAY = 0.09
+const PUNCH_MAX_SCALE = 0.55
+
+function resetFx() {
+  for (const f of fx) {
+    f.flash = 0
+    f.punch = 0
+  }
+  for (const m of ballMeshes) m.scale.setScalar(1)
+}
+
 function triggerExplosion() {
   if (!lastSnap || winner === undefined) return
   const loser: Slot = winner === 0 ? 1 : 0
@@ -352,8 +370,12 @@ function connect() {
         ballMeshes[0].visible = true
         ballMeshes[1].visible = true
         clearBlood()
+        resetFx()
       }
       setBanner()
+    } else if (msg.t === "hit") {
+      fx[msg.victim].flash = 1
+      fx[msg.attacker].punch = Math.max(fx[msg.attacker].punch, Math.min(1, msg.dmg / 12))
     } else if (msg.t === "end") {
       if (serverStatus !== "ended") {
         winner = msg.winner
@@ -413,14 +435,20 @@ renderer.on("resize", (w: number, h: number) => {
   camera.updateProjectionMatrix()
 })
 
-function updateScene() {
+function updateScene(dt: number) {
   if (!lastSnap) return
   for (let i = 0; i < 2; i++) {
     const s = lastSnap[i]
     const mesh = ballMeshes[i]
     mesh.position.set(s.x, s.y, 0)
+    const f = fx[i]
+    if (f.flash > 0) f.flash = Math.max(0, f.flash - dt / FLASH_DECAY)
+    if (f.punch > 0) f.punch = Math.max(0, f.punch - dt / PUNCH_DECAY)
+    const base = s.charging ? P_CHARGE[i] : P_COLORS[i]
     const mat = ballMats[i]
-    mat.color.setHex(s.charging ? P_CHARGE[i] : P_COLORS[i])
+    mat.color.setHex(base)
+    mat.emissiveIntensity = f.flash * 3
+    mesh.scale.setScalar(1 + f.punch * PUNCH_MAX_SCALE)
 
     const a = arrows[i]
     const len = Math.hypot(s.cx, s.cy)
@@ -446,8 +474,9 @@ function updateScene() {
 }
 
 renderer.setFrameCallback(async (deltaMs: number) => {
-  updateScene()
-  updateParticles(deltaMs / 1000)
+  const dt = deltaMs / 1000
+  updateScene(dt)
+  updateParticles(dt)
   if (serverStatus === "ended") setBanner()
   await engine.drawScene(scene, fb.frameBuffer, deltaMs)
 })
