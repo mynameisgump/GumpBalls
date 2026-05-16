@@ -6,18 +6,19 @@ import {
   TextRenderable,
   type KeyEvent,
 } from "@opentui/core"
-import { ThreeCliRenderer } from "@opentui/three"
+import { ThreeCliRenderer, TextureUtils } from "@opentui/three"
 import {
   Scene,
   PerspectiveCamera,
   Mesh,
   SphereGeometry,
   BoxGeometry,
-  MeshPhongMaterial,
+  MeshStandardMaterial,
   AmbientLight,
   DirectionalLight,
   Vector3,
   ArrowHelper,
+  RepeatWrapping,
 } from "three"
 import {
   BALL_MIN_Y,
@@ -61,7 +62,7 @@ renderer.root.add(fb)
 const engine = new ThreeCliRenderer(renderer, {
   width: W,
   height: H,
-  backgroundColor: RGBA.fromValues(1, 1, 1, 1),
+  backgroundColor: RGBA.fromValues(0, 0, 0, 0),
 })
 await engine.init()
 
@@ -77,7 +78,28 @@ const sun = new DirectionalLight(0xffffff, 1.0)
 sun.position.set(5, 8, 10)
 scene.add(sun)
 
-const wallMat = new MeshPhongMaterial({ color: 0x556677 })
+const WALL_TEX = new URL("../public/wall/", import.meta.url).pathname
+const [diffTex, normalTex, roughTex, metalTex] = await Promise.all([
+  TextureUtils.fromFile(`${WALL_TEX}metal_grate_rusty_diff_1k.jpg`),
+  TextureUtils.fromFile(`${WALL_TEX}metal_grate_rusty_nor_gl_1k.jpg`),
+  TextureUtils.fromFile(`${WALL_TEX}metal_grate_rusty_rough_1k.jpg`),
+  TextureUtils.fromFile(`${WALL_TEX}metal_grate_rusty_metal_1k.jpg`),
+])
+for (const tex of [diffTex, normalTex, roughTex, metalTex]) {
+  if (!tex) continue
+  tex.wrapS = RepeatWrapping
+  tex.wrapT = RepeatWrapping
+  tex.repeat.set(1.5, 1.5)
+  tex.needsUpdate = true
+}
+const wallMat = new MeshStandardMaterial({
+  map: diffTex ?? undefined,
+  normalMap: normalTex ?? undefined,
+  roughnessMap: roughTex ?? undefined,
+  metalnessMap: metalTex ?? undefined,
+  metalness: 0.8,
+  roughness: 0.5,
+})
 const floor = new Mesh(new BoxGeometry(ROOM_W, WALL_T, 2), wallMat)
 floor.position.y = FLOOR_Y
 const ceil = new Mesh(new BoxGeometry(ROOM_W, WALL_T, 2), wallMat)
@@ -86,13 +108,15 @@ const leftWall = new Mesh(new BoxGeometry(WALL_T, ROOM_H, 2), wallMat)
 leftWall.position.x = LEFT_X
 const rightWall = new Mesh(new BoxGeometry(WALL_T, ROOM_H, 2), wallMat)
 rightWall.position.x = RIGHT_X
-scene.add(floor, ceil, leftWall, rightWall)
+const backWall = new Mesh(new BoxGeometry(ROOM_W, ROOM_H, WALL_T), wallMat)
+backWall.position.z = -1 - WALL_T / 2
+scene.add(floor, ceil, leftWall, rightWall, backWall)
 
 const P_COLORS = [0xff5533, 0x33ff66]
 const P_CHARGE = [0x33aaff, 0xffcc33]
 
 const ballMats = P_COLORS.map(
-  (c) => new MeshPhongMaterial({ color: c, shininess: 60 }),
+  (c) => new MeshStandardMaterial({ color: c, metalness: 0.3, roughness: 0.4 }),
 )
 const ballMeshes = ballMats.map((m) => {
   const mesh = new Mesh(new SphereGeometry(BALL_R, 24, 16), m)
@@ -122,7 +146,7 @@ const hud = new TextRenderable(renderer, {
   position: "absolute",
   left: 1,
   top: 0,
-  fg: RGBA.fromValues(0, 0, 0, 1),
+  fg: RGBA.fromValues(1, 1, 1, 1),
 })
 renderer.root.add(hud)
 
@@ -133,7 +157,7 @@ const banner = new TextRenderable(renderer, {
   position: "absolute",
   left: 1,
   top: 2,
-  fg: RGBA.fromValues(0, 0, 0, 1),
+  fg: RGBA.fromValues(1, 1, 1, 1),
 })
 renderer.root.add(banner)
 
