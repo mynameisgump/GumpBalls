@@ -17,7 +17,11 @@ Gump balls
 
 - Add 3d characters
 - Title Select screen
+- Have 3d Text above arena
 - Make camera look at center point
+  - Bad looks gross
+  - Maybe have a smash style camera??
+  -
 
 # Claude Ideas:
 
