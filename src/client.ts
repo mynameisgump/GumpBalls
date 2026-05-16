@@ -42,10 +42,15 @@ import {
   RIGHT_X,
   ROOM_H,
   ROOM_W,
+  TICK_HZ,
   WALL_T,
+  applyDir,
+  applySpace,
   decodeServerMsg,
   encodeClientMsg,
-  type BallSnap,
+  integrateBalls,
+  makeBall,
+  type Ball,
   type ClientMsg,
   type DirKey,
   type Slot,
@@ -292,7 +297,10 @@ const banner = new TextRenderable(renderer, {
 renderer.root.add(banner);
 
 let mySlot: Slot | -1 = -1;
-let lastSnap: BallSnap[] | null = null;
+const localBalls: Ball[] = [makeBall(0), makeBall(1)];
+let haveSnap = false;
+let lastSnapAt = 0;
+let serverFrame = 0;
 let serverStatus: "waiting" | "playing" | "ended" = "waiting";
 let winner: Slot | undefined;
 let connected = false;
@@ -343,9 +351,9 @@ function resetFx() {
 }
 
 function triggerExplosion() {
-  if (!lastSnap || winner === undefined) return;
+  if (!haveSnap || winner === undefined) return;
   const loser: Slot = winner === 0 ? 1 : 0;
-  const lp = lastSnap[loser];
+  const lp = localBalls[loser];
   burstBlood(lp.x, lp.y);
   ballMeshes[loser].visible = false;
   arrows[loser].visible = false;
@@ -376,7 +384,30 @@ function connect() {
       setBanner();
     } else if (msg.t === "snap") {
       const prev = serverStatus;
-      lastSnap = msg.balls;
+      const now = Date.now();
+      const snapDt = haveSnap ? Math.max(0.001, (now - lastSnapAt) / 1000) : 0;
+      for (let i = 0; i < 2; i++) {
+        const s = msg.balls[i];
+        const b = localBalls[i];
+        const isSelf = i === (mySlot as number);
+        if (!isSelf && haveSnap) {
+          b.vx = (s.x - b.x) / snapDt;
+          b.vy = (s.y - b.y) / snapDt;
+        }
+        if (!isSelf || !haveSnap) {
+          b.x = s.x;
+          b.y = s.y;
+        }
+        if (!isSelf) {
+          b.charging = s.charging;
+          b.cx = s.cx;
+          b.cy = s.cy;
+        }
+        b.hp = s.hp;
+      }
+      lastSnapAt = now;
+      haveSnap = true;
+      serverFrame = msg.frame;
       serverStatus = msg.status;
       winner = msg.winner;
       if (prev !== "ended" && serverStatus === "ended") {
@@ -431,12 +462,20 @@ renderer.keyInput.on("keypress", (k: KeyEvent) => {
   }
 
   if (k.name === "space") {
+    if (mySlot !== -1 && serverStatus === "playing") {
+      applySpace(localBalls[mySlot]);
+    }
     sendMsg({ t: "space" });
     return;
   }
 
   const name = k.name ? DIR_NAMES[k.name] : undefined;
-  if (name) sendMsg({ t: "dir", name, shift: !!k.shift });
+  if (name) {
+    if (mySlot !== -1 && serverStatus === "playing") {
+      applyDir(localBalls[mySlot], name, !!k.shift);
+    }
+    sendMsg({ t: "dir", name, shift: !!k.shift });
+  }
 });
 
 renderer.on("resize", (w: number, h: number) => {
@@ -449,9 +488,9 @@ renderer.on("resize", (w: number, h: number) => {
 });
 
 function updateScene(dt: number) {
-  if (!lastSnap) return;
+  if (!haveSnap) return;
   for (let i = 0; i < 2; i++) {
-    const s = lastSnap[i];
+    const s = localBalls[i];
     const mesh = ballMeshes[i];
     mesh.position.set(s.x, s.y, 0);
     const f = fx[i];
@@ -480,15 +519,26 @@ function updateScene(dt: number) {
     }
   }
 
-  const p1 = lastSnap[0];
-  const p2 = lastSnap[1];
+  const p1 = localBalls[0];
+  const p2 = localBalls[1];
   const tag = mySlot >= 0 ? `P${mySlot + 1}` : "spectator";
+  const elapsedFrames = Math.round(
+    ((Date.now() - lastSnapAt) / 1000) * TICK_HZ,
+  );
+  const estFrame = serverFrame + elapsedFrames;
   hud.content =
     `${tag}  ` +
     `P1 ${hpBar(p1.hp)} ${p1.hp.toFixed(0).padStart(3)}  ` +
     `P2 ${hpBar(p2.hp)} ${p2.hp.toFixed(0).padStart(3)}  ` +
-    `last:${lastKey}`;
+    `f:${estFrame}  last:${lastKey}`;
 }
+
+const LOCAL_DT = 1 / TICK_HZ;
+setInterval(() => {
+  if (!haveSnap) return;
+  if (serverStatus !== "playing") return;
+  integrateBalls(localBalls, LOCAL_DT);
+}, 1000 / TICK_HZ);
 
 renderer.setFrameCallback(async (deltaMs: number) => {
   const dt = deltaMs / 1000;

@@ -24,6 +24,7 @@ const spectators = new Set<ServerWebSocket<WSData>>();
 let status: "waiting" | "playing" | "ended" = "waiting";
 let winner: Slot | undefined;
 let hitstopUntil = 0;
+let frame = 0;
 
 function snapshot(): BallSnap[] {
   return balls.map((b) => ({
@@ -51,6 +52,7 @@ function resetMatch() {
   balls[1] = makeBall(1);
   winner = undefined;
   hitstopUntil = 0;
+  frame = 0;
   status = sockets[0] && sockets[1] ? "playing" : "waiting";
 }
 
@@ -85,11 +87,14 @@ let snapAccum = 0;
 const snapInterval = 1 / SNAP_HZ;
 
 setInterval(() => {
-  if ((status === "playing" || status === "ended") && Date.now() >= hitstopUntil) tick(dt);
+  if ((status === "playing" || status === "ended") && Date.now() >= hitstopUntil) {
+    tick(dt);
+    frame++;
+  }
   snapAccum += dt;
   if (snapAccum >= snapInterval) {
     snapAccum = 0;
-    broadcast({ t: "snap", balls: snapshot(), status, winner });
+    broadcast({ t: "snap", frame, balls: snapshot(), status, winner });
   }
 }, 1000 / TICK_HZ);
 

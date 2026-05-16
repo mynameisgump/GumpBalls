@@ -40,6 +40,7 @@ export type ServerMsg =
   | { t: "slot"; n: Slot | -1 }
   | {
       t: "snap";
+      frame: number;
       balls: BallSnap[];
       status: "waiting" | "playing" | "ended";
       winner?: Slot;
@@ -156,7 +157,7 @@ export function applySpace(b: Ball) {
   }
 }
 
-export function physicsStep(balls: Ball[], dt: number): HitEvent | null {
+export function integrateBalls(balls: Ball[], dt: number) {
   for (const b of balls) {
     if (b.charging) continue;
     if (b.hp <= 0) continue;
@@ -183,7 +184,9 @@ export function physicsStep(balls: Ball[], dt: number): HitEvent | null {
       b.vy = -b.vy * 0.3;
     }
   }
+}
 
+export function resolveCollision(balls: Ball[]): HitEvent | null {
   const [a, c] = balls;
   const dx = c.x - a.x;
   const dy = c.y - a.y;
@@ -235,6 +238,11 @@ export function physicsStep(balls: Ball[], dt: number): HitEvent | null {
   return null;
 }
 
+export function physicsStep(balls: Ball[], dt: number): HitEvent | null {
+  integrateBalls(balls, dt);
+  return resolveCollision(balls);
+}
+
 export const MSG = {
   SLOT: 1,
   SNAP: 2,
@@ -270,7 +278,7 @@ const STATUS_CODE = { waiting: 0, playing: 1, ended: 2 } as const;
 const STATUS_NAME = ["waiting", "playing", "ended"] as const;
 
 const BALL_BYTES = 4 * 5 + 1;
-const SNAP_BYTES = 1 + 1 + 1 + 2 * BALL_BYTES;
+const SNAP_BYTES = 1 + 4 + 1 + 1 + 2 * BALL_BYTES;
 
 export function encodeServerMsg(m: ServerMsg): ArrayBuffer {
   switch (m.t) {
@@ -287,6 +295,8 @@ export function encodeServerMsg(m: ServerMsg): ArrayBuffer {
       let o = 0;
       v.setUint8(o, MSG.SNAP);
       o += 1;
+      v.setUint32(o, m.frame >>> 0, true);
+      o += 4;
       v.setUint8(o, STATUS_CODE[m.status]);
       o += 1;
       v.setUint8(o, m.winner === undefined ? 255 : m.winner);
@@ -331,6 +341,8 @@ export function decodeServerMsg(data: ArrayBuffer): ServerMsg | null {
     }
     case MSG.SNAP: {
       let o = 1;
+      const frame = v.getUint32(o, true);
+      o += 4;
       const sc = v.getUint8(o);
       o += 1;
       if (sc > 2) return null;
@@ -354,7 +366,7 @@ export function decodeServerMsg(data: ArrayBuffer): ServerMsg | null {
         o += 4;
         balls.push({ x, y, hp, charging, cx, cy });
       }
-      return { t: "snap", balls, status, winner };
+      return { t: "snap", frame, balls, status, winner };
     }
     case MSG.HIT: {
       const attacker = v.getUint8(1) as Slot;
