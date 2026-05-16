@@ -397,14 +397,6 @@ function connect() {
         fx[msg.attacker].punch,
         Math.min(1, msg.dmg / 12),
       );
-    } else if (msg.t === "end") {
-      if (serverStatus !== "ended") {
-        winner = msg.winner;
-        serverStatus = "ended";
-        endedAt = Date.now();
-        triggerExplosion();
-      }
-      setBanner();
     }
   };
 }

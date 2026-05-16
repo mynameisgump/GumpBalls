@@ -30,8 +30,6 @@ export type Slot = 0 | 1;
 export type BallSnap = {
   x: number;
   y: number;
-  vx: number;
-  vy: number;
   hp: number;
   charging: boolean;
   cx: number;
@@ -42,12 +40,10 @@ export type ServerMsg =
   | { t: "slot"; n: Slot | -1 }
   | {
       t: "snap";
-      tick: number;
       balls: BallSnap[];
       status: "waiting" | "playing" | "ended";
       winner?: Slot;
     }
-  | { t: "end"; winner: Slot }
   | { t: "hit"; attacker: Slot; victim: Slot; dmg: number };
 
 export type DirKey =
@@ -72,7 +68,6 @@ export type ClientMsg =
 export const MSG = {
   SLOT: 1,
   SNAP: 2,
-  END: 3,
   HIT: 4,
   HELLO: 0x10,
   DIR: 0x11,
@@ -104,8 +99,8 @@ export const DIR_INDEX: Record<DirKey, number> = DIR_LIST.reduce(
 const STATUS_CODE = { waiting: 0, playing: 1, ended: 2 } as const;
 const STATUS_NAME = ["waiting", "playing", "ended"] as const;
 
-const BALL_BYTES = 4 * 7 + 1;
-const SNAP_BYTES = 1 + 4 + 1 + 1 + 2 * BALL_BYTES;
+const BALL_BYTES = 4 * 5 + 1;
+const SNAP_BYTES = 1 + 1 + 1 + 2 * BALL_BYTES;
 
 export function encodeServerMsg(m: ServerMsg): ArrayBuffer {
   switch (m.t) {
@@ -122,8 +117,6 @@ export function encodeServerMsg(m: ServerMsg): ArrayBuffer {
       let o = 0;
       v.setUint8(o, MSG.SNAP);
       o += 1;
-      v.setUint32(o, m.tick >>> 0, true);
-      o += 4;
       v.setUint8(o, STATUS_CODE[m.status]);
       o += 1;
       v.setUint8(o, m.winner === undefined ? 255 : m.winner);
@@ -132,10 +125,6 @@ export function encodeServerMsg(m: ServerMsg): ArrayBuffer {
         v.setFloat32(o, b.x, true);
         o += 4;
         v.setFloat32(o, b.y, true);
-        o += 4;
-        v.setFloat32(o, b.vx, true);
-        o += 4;
-        v.setFloat32(o, b.vy, true);
         o += 4;
         v.setFloat32(o, b.hp, true);
         o += 4;
@@ -146,13 +135,6 @@ export function encodeServerMsg(m: ServerMsg): ArrayBuffer {
         v.setFloat32(o, b.cy, true);
         o += 4;
       }
-      return buf;
-    }
-    case "end": {
-      const buf = new ArrayBuffer(2);
-      const v = new DataView(buf);
-      v.setUint8(0, MSG.END);
-      v.setUint8(1, m.winner);
       return buf;
     }
     case "hit": {
@@ -179,8 +161,6 @@ export function decodeServerMsg(data: ArrayBuffer): ServerMsg | null {
     }
     case MSG.SNAP: {
       let o = 1;
-      const tick = v.getUint32(o, true);
-      o += 4;
       const sc = v.getUint8(o);
       o += 1;
       if (sc > 2) return null;
@@ -194,10 +174,6 @@ export function decodeServerMsg(data: ArrayBuffer): ServerMsg | null {
         o += 4;
         const y = v.getFloat32(o, true);
         o += 4;
-        const vx = v.getFloat32(o, true);
-        o += 4;
-        const vy = v.getFloat32(o, true);
-        o += 4;
         const hp = v.getFloat32(o, true);
         o += 4;
         const charging = v.getUint8(o) !== 0;
@@ -206,13 +182,9 @@ export function decodeServerMsg(data: ArrayBuffer): ServerMsg | null {
         o += 4;
         const cy = v.getFloat32(o, true);
         o += 4;
-        balls.push({ x, y, vx, vy, hp, charging, cx, cy });
+        balls.push({ x, y, hp, charging, cx, cy });
       }
-      return { t: "snap", tick, balls, status, winner };
-    }
-    case MSG.END: {
-      const winner = v.getUint8(1) as Slot;
-      return { t: "end", winner };
+      return { t: "snap", balls, status, winner };
     }
     case MSG.HIT: {
       const attacker = v.getUint8(1) as Slot;

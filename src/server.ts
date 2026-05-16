@@ -56,15 +56,12 @@ const sockets: (ServerWebSocket<WSData> | null)[] = [null, null];
 const spectators = new Set<ServerWebSocket<WSData>>();
 let status: "waiting" | "playing" | "ended" = "waiting";
 let winner: Slot | undefined;
-let tick = 0;
 let hitstopUntil = 0;
 
 function snapshot(): BallSnap[] {
   return balls.map((b) => ({
     x: b.x,
     y: b.y,
-    vx: b.vx,
-    vy: b.vy,
     hp: b.hp,
     charging: b.charging,
     cx: b.cx,
@@ -86,7 +83,6 @@ function resetMatch() {
   balls[0] = makeBall(0);
   balls[1] = makeBall(1);
   winner = undefined;
-  tick = 0;
   hitstopUntil = 0;
   status = sockets[0] && sockets[1] ? "playing" : "waiting";
 }
@@ -240,7 +236,6 @@ function physicsStep(dt: number) {
     if (dead0 || dead1) {
       status = "ended";
       winner = dead0 && dead1 ? 0 : dead0 ? 1 : 0;
-      broadcast({ t: "end", winner: winner! });
       setTimeout(() => {
         if (status !== "ended") return;
         if (sockets[0] && sockets[1]) {
@@ -264,8 +259,7 @@ setInterval(() => {
   snapAccum += dt;
   if (snapAccum >= snapInterval) {
     snapAccum = 0;
-    tick++;
-    broadcast({ t: "snap", tick, balls: snapshot(), status, winner });
+    broadcast({ t: "snap", balls: snapshot(), status, winner });
   }
 }, 1000 / TICK_HZ);
 
