@@ -194,6 +194,8 @@ function physicsStep(dt: number) {
     c.x += nx * overlap * 0.5;
     c.y += ny * overlap * 0.5;
 
+    const speedA = Math.hypot(a.vx, a.vy);
+    const speedC = Math.hypot(c.vx, c.vy);
     const rvx = c.vx - a.vx;
     const rvy = c.vy - a.vy;
     const closing = -(rvx * nx + rvy * ny);
@@ -206,9 +208,11 @@ function physicsStep(dt: number) {
       c.vy += j * ny;
 
       if (closing > DMG_THRESHOLD) {
-        const dmg = (closing - DMG_THRESHOLD) * DMG_K;
-        a.hp = Math.max(0, a.hp - dmg);
-        c.hp = Math.max(0, c.hp - dmg);
+        if (speedA > speedC) {
+          c.hp = Math.max(0, c.hp - (speedA - DMG_THRESHOLD) * DMG_K);
+        } else if (speedC > speedA) {
+          a.hp = Math.max(0, a.hp - (speedC - DMG_THRESHOLD) * DMG_K);
+        }
       }
     }
   }
