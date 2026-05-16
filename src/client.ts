@@ -20,6 +20,8 @@ import {
   ArrowHelper,
   RepeatWrapping,
 } from "three"
+import { MeshStandardNodeMaterial } from "three/webgpu"
+import { positionLocal, normalLocal, uniform, time, mx_noise_float } from "three/tsl"
 import {
   BALL_MIN_Y,
   BALL_R,
@@ -115,11 +117,28 @@ scene.add(floor, ceil, leftWall, rightWall, backWall)
 const P_COLORS = [0xff5533, 0x33ff66]
 const P_CHARGE = [0x33aaff, 0xffcc33]
 
-const ballMats = P_COLORS.map(
-  (c) => new MeshStandardMaterial({ color: c, metalness: 0.3, roughness: 0.4 }),
-)
+const BALL_TEX = new URL("../public/ball/", import.meta.url).pathname
+const ballDiff = await TextureUtils.fromFile(`${BALL_TEX}Skin_05_basecolor.jpg`)
+
+const noiseFreq = uniform(6.0)
+const noiseSpeed = uniform(1.5)
+const noiseIntensity = uniform(0.06)
+
+function makeBallMat(color: number) {
+  const mat = new MeshStandardNodeMaterial({
+    map: ballDiff ?? undefined,
+    metalness: 0.2,
+    roughness: 0.5,
+  })
+  mat.color.setHex(color)
+  const n = mx_noise_float(positionLocal.mul(noiseFreq).add(time.mul(noiseSpeed)))
+  mat.positionNode = positionLocal.add(normalLocal.mul(n).mul(noiseIntensity))
+  return mat
+}
+
+const ballMats = P_COLORS.map((c) => makeBallMat(c))
 const ballMeshes = ballMats.map((m) => {
-  const mesh = new Mesh(new SphereGeometry(BALL_R, 24, 16), m)
+  const mesh = new Mesh(new SphereGeometry(BALL_R, 32, 24), m)
   mesh.position.set(0, BALL_MIN_Y, 0)
   scene.add(mesh)
   return mesh
