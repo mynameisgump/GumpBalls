@@ -50,7 +50,16 @@ import {
   type Slot,
 } from "./shared";
 
-const SERVER_URL = process.env.SERVER_URL ?? `ws://localhost:${PORT}`;
+function parseServerUrl(): string {
+  const argv = process.argv.slice(2);
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--server" || a === "-s") return argv[++i] ?? "";
+    if (a.startsWith("--server=")) return a.slice("--server=".length);
+  }
+  return process.env.SERVER_URL ?? `ws://localhost:${PORT}`;
+}
+const SERVER_URL = parseServerUrl();
 
 const renderer = await createCliRenderer({
   exitOnCtrlC: true,
