@@ -17,8 +17,9 @@ import {
   SHIFT_MULT,
   SNAP_HZ,
   TICK_HZ,
+  decodeClientMsg,
+  encodeServerMsg,
   type BallSnap,
-  type ClientMsg,
   type DirKey,
   type ServerMsg,
   type Slot,
@@ -72,13 +73,13 @@ function snapshot(): BallSnap[] {
 }
 
 function broadcast(msg: ServerMsg) {
-  const s = JSON.stringify(msg);
-  for (const ws of sockets) ws?.send(s);
-  for (const ws of spectators) ws.send(s);
+  const buf = encodeServerMsg(msg);
+  for (const ws of sockets) ws?.send(buf);
+  for (const ws of spectators) ws.send(buf);
 }
 
 function send(ws: ServerWebSocket<WSData>, msg: ServerMsg) {
-  ws.send(JSON.stringify(msg));
+  ws.send(encodeServerMsg(msg));
 }
 
 function resetMatch() {
@@ -298,12 +299,14 @@ const server = Bun.serve<WSData>({
       }
     },
     message(ws, raw) {
-      let msg: ClientMsg;
-      try {
-        msg = JSON.parse(typeof raw === "string" ? raw : raw.toString());
-      } catch {
-        return;
-      }
+      if (typeof raw === "string") return;
+      const u8 = raw as Uint8Array;
+      const ab = u8.buffer.slice(
+        u8.byteOffset,
+        u8.byteOffset + u8.byteLength,
+      ) as ArrayBuffer;
+      const msg = decodeClientMsg(ab);
+      if (!msg) return;
       const slot = ws.data.slot;
       if (slot < 0) return;
       const b = balls[slot];

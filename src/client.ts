@@ -43,10 +43,11 @@ import {
   ROOM_H,
   ROOM_W,
   WALL_T,
+  decodeServerMsg,
+  encodeClientMsg,
   type BallSnap,
   type ClientMsg,
   type DirKey,
-  type ServerMsg,
   type Slot,
 } from "./shared";
 
@@ -353,6 +354,7 @@ function triggerExplosion() {
 let ws: WebSocket | null = null;
 function connect() {
   ws = new WebSocket(SERVER_URL);
+  ws.binaryType = "arraybuffer";
   ws.onopen = () => {
     connected = true;
     setBanner();
@@ -366,12 +368,9 @@ function connect() {
     // close handler will retry
   };
   ws.onmessage = (ev) => {
-    let msg: ServerMsg;
-    try {
-      msg = JSON.parse(ev.data as string);
-    } catch {
-      return;
-    }
+    if (!(ev.data instanceof ArrayBuffer)) return;
+    const msg = decodeServerMsg(ev.data);
+    if (!msg) return;
     if (msg.t === "slot") {
       mySlot = msg.n;
       setBanner();
@@ -412,7 +411,7 @@ function connect() {
 connect();
 
 function sendMsg(m: ClientMsg) {
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m));
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(encodeClientMsg(m));
 }
 
 const DIR_NAMES: Record<string, DirKey> = {
