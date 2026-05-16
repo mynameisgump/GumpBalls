@@ -1,55 +1,22 @@
 #!/usr/bin/env bun
 import type { ServerWebSocket } from "bun";
 import {
-  BALL_MAX_X,
-  BALL_MAX_Y,
-  BALL_MIN_X,
-  BALL_MIN_Y,
-  BALL_R,
-  BURST_SCALE,
-  CHARGE_STEP,
-  DMG_K,
-  DMG_THRESHOLD,
-  GRAVITY,
-  HORIZ_FRICTION,
-  MAX_HP,
   PORT,
-  SHIFT_MULT,
   SNAP_HZ,
   TICK_HZ,
+  applyDir,
+  applySpace,
   decodeClientMsg,
   encodeServerMsg,
+  makeBall,
+  physicsStep,
+  type Ball,
   type BallSnap,
-  type DirKey,
   type ServerMsg,
   type Slot,
 } from "./shared";
 
-type Ball = {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  hp: number;
-  charging: boolean;
-  cx: number;
-  cy: number;
-};
-
 type WSData = { slot: Slot | -1 };
-
-function makeBall(slot: Slot): Ball {
-  return {
-    x: slot === 0 ? -4 : 4,
-    y: BALL_MIN_Y,
-    vx: 0,
-    vy: 0,
-    hp: MAX_HP,
-    charging: false,
-    cx: 0,
-    cy: 0,
-  };
-}
 
 const balls: Ball[] = [makeBall(0), makeBall(1)];
 const sockets: (ServerWebSocket<WSData> | null)[] = [null, null];
@@ -87,149 +54,12 @@ function resetMatch() {
   status = sockets[0] && sockets[1] ? "playing" : "waiting";
 }
 
-function applyDir(b: Ball, name: DirKey, shift: boolean) {
-  const step = CHARGE_STEP * (shift ? SHIFT_MULT : 1);
-  const diag = step / Math.SQRT2;
-  let dx = 0;
-  let dy = 0;
-  switch (name) {
-    case "left":
-    case "a":
-      dx = -step;
-      break;
-    case "right":
-    case "d":
-      dx = step;
-      break;
-    case "up":
-    case "w":
-      dy = step;
-      break;
-    case "down":
-    case "s":
-      dy = -step;
-      break;
-    case "q":
-      dx = -diag;
-      dy = diag;
-      break;
-    case "e":
-      dx = diag;
-      dy = diag;
-      break;
-    case "z":
-      dx = -diag;
-      dy = -diag;
-      break;
-    case "c":
-      dx = diag;
-      dy = -diag;
-      break;
+function tick(dt: number) {
+  const hit = physicsStep(balls, dt);
+  if (hit) {
+    broadcast({ t: "hit", ...hit });
+    hitstopUntil = Date.now() + Math.min(20 + hit.dmg * 4, 120);
   }
-  if (dx === 0 && dy === 0) return;
-  if (b.charging) {
-    b.cx += dx;
-    b.cy += dy;
-  } else {
-    b.vx += dx * BURST_SCALE;
-    b.vy += dy * BURST_SCALE;
-  }
-}
-
-function applySpace(b: Ball) {
-  if (b.charging) {
-    b.vx = b.cx;
-    b.vy = b.cy;
-    b.cx = 0;
-    b.cy = 0;
-    b.charging = false;
-  } else {
-    b.charging = true;
-    b.cx = 0;
-    b.cy = 0;
-    b.vx = 0;
-    b.vy = 0;
-  }
-}
-
-function physicsStep(dt: number) {
-  for (const b of balls) {
-    if (b.charging) continue;
-    if (b.hp <= 0) continue;
-    b.vy += GRAVITY * dt;
-    const fx = HORIZ_FRICTION * dt;
-    if (b.vx > fx) b.vx -= fx;
-    else if (b.vx < -fx) b.vx += fx;
-    else b.vx = 0;
-    b.x += b.vx * dt;
-    b.y += b.vy * dt;
-
-    if (b.x < BALL_MIN_X) {
-      b.x = BALL_MIN_X;
-      b.vx = -b.vx * 0.3;
-    } else if (b.x > BALL_MAX_X) {
-      b.x = BALL_MAX_X;
-      b.vx = -b.vx * 0.3;
-    }
-    if (b.y < BALL_MIN_Y) {
-      b.y = BALL_MIN_Y;
-      b.vy = -b.vy * 0.3;
-    } else if (b.y > BALL_MAX_Y) {
-      b.y = BALL_MAX_Y;
-      b.vy = -b.vy * 0.3;
-    }
-  }
-
-  const [a, c] = balls;
-  const dx = c.x - a.x;
-  const dy = c.y - a.y;
-  const dist = Math.hypot(dx, dy);
-  const minDist = BALL_R * 2;
-  if (a.hp > 0 && c.hp > 0 && dist > 0 && dist < minDist) {
-    const nx = dx / dist;
-    const ny = dy / dist;
-    const overlap = minDist - dist;
-    a.x -= nx * overlap * 0.5;
-    a.y -= ny * overlap * 0.5;
-    c.x += nx * overlap * 0.5;
-    c.y += ny * overlap * 0.5;
-
-    const speedA = Math.hypot(a.vx, a.vy);
-    const speedC = Math.hypot(c.vx, c.vy);
-    const rvx = c.vx - a.vx;
-    const rvy = c.vy - a.vy;
-    const closing = -(rvx * nx + rvy * ny);
-    if (closing > 0) {
-      const restitution = 0.9;
-      const j = closing * (1 + restitution);
-      a.vx -= j * nx;
-      a.vy -= j * ny;
-      c.vx += j * nx;
-      c.vy += j * ny;
-
-      if (closing > DMG_THRESHOLD) {
-        let attacker: Slot | undefined;
-        let victim: Slot | undefined;
-        let dmg = 0;
-        if (speedA > speedC) {
-          dmg = (speedA - DMG_THRESHOLD) * DMG_K;
-          c.hp = Math.max(0, c.hp - dmg);
-          attacker = 0;
-          victim = 1;
-        } else if (speedC > speedA) {
-          dmg = (speedC - DMG_THRESHOLD) * DMG_K;
-          a.hp = Math.max(0, a.hp - dmg);
-          attacker = 1;
-          victim = 0;
-        }
-        if (attacker !== undefined && victim !== undefined && dmg > 0) {
-          broadcast({ t: "hit", attacker, victim, dmg });
-          hitstopUntil = Date.now() + Math.min(20 + dmg * 4, 120);
-        }
-      }
-    }
-  }
-
   if (status === "playing") {
     const dead0 = balls[0].hp <= 0;
     const dead1 = balls[1].hp <= 0;
@@ -255,7 +85,7 @@ let snapAccum = 0;
 const snapInterval = 1 / SNAP_HZ;
 
 setInterval(() => {
-  if ((status === "playing" || status === "ended") && Date.now() >= hitstopUntil) physicsStep(dt);
+  if ((status === "playing" || status === "ended") && Date.now() >= hitstopUntil) tick(dt);
   snapAccum += dt;
   if (snapAccum >= snapInterval) {
     snapAccum = 0;
