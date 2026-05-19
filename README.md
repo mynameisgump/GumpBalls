@@ -26,6 +26,12 @@ Gump balls
 - Should probably refactor
   - Currently
 
+# Server Ideas
+
+- Ssh into game for a round robin tournament
+-
+-
+
 # Claude Ideas:
 
 Game = 2-ball physics duel. Charge dir, release for burst. Collision speed → dmg. Existing mech: gravity, friction, wall bounce, HP 100.

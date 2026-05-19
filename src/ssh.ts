@@ -15,8 +15,28 @@ const AUTOSTART_SERVER = (process.env.AUTOSTART_SERVER ?? "1") !== "0"
 
 const hostKey = readFileSync(HOST_KEY_PATH)
 
+function parseBotArgs(): string[] {
+  const out: string[] = []
+  const argv = process.argv.slice(2)
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]
+    if (a === "--bots") out.push("--bots")
+    else if (a === "--bot" || a === "-b") {
+      const n = argv[++i]
+      if (n !== undefined) out.push("--bot", n)
+    } else if (a.startsWith("--bot=")) out.push(a)
+  }
+  const env = process.env.BOTS
+  if (env) {
+    if (env === "both" || env === "all" || env === "2") out.push("--bots")
+    else if (env === "0" || env === "1") out.push("--bot", env)
+  }
+  return out
+}
+
 if (AUTOSTART_SERVER) {
-  const proc = Bun.spawn([BUN_BIN, "run", SERVER_SCRIPT], {
+  const serverArgs = parseBotArgs()
+  const proc = Bun.spawn([BUN_BIN, "run", SERVER_SCRIPT, ...serverArgs], {
     stdout: "inherit",
     stderr: "inherit",
     env: { ...process.env },
