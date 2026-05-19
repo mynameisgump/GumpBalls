@@ -20,9 +20,12 @@ import {
   AmbientLight,
   DirectionalLight,
   Vector3,
+  Box3,
   ArrowHelper,
   RepeatWrapping,
 } from "three";
+import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js";
+import { TextGeometry } from "three/examples/jsm/geometries/TextGeometry.js";
 import { MeshStandardNodeMaterial } from "three/webgpu";
 import {
   positionLocal,
@@ -137,6 +140,40 @@ rightWall.position.x = RIGHT_X;
 const backWall = new Mesh(new BoxGeometry(ROOM_W, ROOM_H, WALL_T), wallMat);
 backWall.position.z = -1 - WALL_T / 2;
 scene.add(floor, ceil, leftWall, rightWall, backWall);
+
+const FONT_URL = new URL(
+  "../node_modules/three/examples/fonts/helvetiker_bold.typeface.json",
+  import.meta.url,
+).pathname;
+try {
+  const fontJson = JSON.parse(await Bun.file(FONT_URL).text());
+  const font = new FontLoader().parse(fontJson);
+  const textGeo = new TextGeometry("GUMP BALLS", {
+    font,
+    size: 1.2,
+    depth: 0.3,
+    curveSegments: 6,
+    bevelEnabled: true,
+    bevelThickness: 0.05,
+    bevelSize: 0.04,
+    bevelSegments: 2,
+  });
+  textGeo.computeBoundingBox();
+  const bb = textGeo.boundingBox as Box3;
+  const cx = -(bb.max.x + bb.min.x) / 2;
+  const titleMat = new MeshStandardMaterial({
+    color: 0xff3355,
+    emissive: 0x551122,
+    emissiveIntensity: 0.6,
+    metalness: 0.4,
+    roughness: 0.4,
+  });
+  const titleMesh = new Mesh(textGeo, titleMat);
+  titleMesh.position.set(cx, CEIL_Y + 1.2, 0);
+  scene.add(titleMesh);
+} catch (e) {
+  console.error("title text load failed:", (e as Error).message);
+}
 
 const P_COLORS = [0xff5533, 0x33ff66];
 const P_CHARGE = [0x33aaff, 0xffcc33];
