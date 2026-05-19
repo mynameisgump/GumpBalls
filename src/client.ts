@@ -309,6 +309,57 @@ let localBall: Ball | null = null;
 let physAccum = 0;
 const FIXED_DT = 1 / TICK_HZ;
 
+type SnapEntry = { t: number; balls: BallSnap[] };
+const snapBuf: SnapEntry[] = [];
+const INTERP_DELAY_MS = 100;
+const SNAP_KEEP_MS = 500;
+
+function interpOpponent(slot: number, now: number): BallSnap | null {
+  if (snapBuf.length === 0) return null;
+  const target = now - INTERP_DELAY_MS;
+  let a: SnapEntry | null = null;
+  let b: SnapEntry | null = null;
+  for (let i = snapBuf.length - 1; i >= 0; i--) {
+    if (snapBuf[i].t <= target) {
+      a = snapBuf[i];
+      b = snapBuf[i + 1] ?? null;
+      break;
+    }
+  }
+  if (a && b) {
+    const span = b.t - a.t;
+    const alpha = span > 0 ? Math.max(0, Math.min(1, (target - a.t) / span)) : 0;
+    const sa = a.balls[slot];
+    const sb = b.balls[slot];
+    return {
+      x: sa.x + (sb.x - sa.x) * alpha,
+      y: sa.y + (sb.y - sa.y) * alpha,
+      vx: sa.vx + (sb.vx - sa.vx) * alpha,
+      vy: sa.vy + (sb.vy - sa.vy) * alpha,
+      hp: sb.hp,
+      charging: sb.charging,
+      cx: sa.cx + (sb.cx - sa.cx) * alpha,
+      cy: sa.cy + (sb.cy - sa.cy) * alpha,
+    };
+  }
+  if (a && !b) {
+    const sa = a.balls[slot];
+    const dt = (target - a.t) / 1000;
+    return {
+      x: sa.x + sa.vx * dt,
+      y: sa.y + sa.vy * dt,
+      vx: sa.vx,
+      vy: sa.vy,
+      hp: sa.hp,
+      charging: sa.charging,
+      cx: sa.cx,
+      cy: sa.cy,
+    };
+  }
+  const sb = snapBuf[0].balls[slot];
+  return { ...sb };
+}
+
 function snapToLocal(s: BallSnap): Ball {
   return {
     x: s.x,
@@ -410,6 +461,11 @@ function connect() {
       lastSnap = msg.balls;
       serverStatus = msg.status;
       winner = msg.winner;
+      const now = performance.now();
+      if (prev !== serverStatus) snapBuf.length = 0;
+      snapBuf.push({ t: now, balls: msg.balls });
+      const cutoff = now - SNAP_KEEP_MS;
+      while (snapBuf.length > 2 && snapBuf[0].t < cutoff) snapBuf.shift();
       if (prev !== "ended" && serverStatus === "ended") {
         endedAt = Date.now();
         triggerExplosion();
@@ -422,12 +478,26 @@ function connect() {
         resetFx();
       }
       if (mySlot >= 0) {
-        const mySnap = msg.balls[mySlot]!;
+        const slot = mySlot as Slot;
+        const mySnap = msg.balls[slot]!;
+        const ack = msg.ack[slot] ?? 0;
+        while (pendingInputs.length > 0 && pendingInputs[0].seq <= ack) {
+          pendingInputs.shift();
+        }
         if (!localBall || prev !== serverStatus) {
           localBall = snapToLocal(mySnap);
           physAccum = 0;
         } else {
+          localBall.x = mySnap.x;
+          localBall.y = mySnap.y;
+          localBall.vx = mySnap.vx;
+          localBall.vy = mySnap.vy;
           localBall.hp = mySnap.hp;
+          localBall.charging = mySnap.charging;
+          localBall.cx = mySnap.cx;
+          localBall.cy = mySnap.cy;
+          for (const inp of pendingInputs) applyPending(localBall, inp);
+          physAccum = 0;
         }
       }
       setBanner();
@@ -463,6 +533,16 @@ const DIR_NAMES: Record<string, DirKey> = {
 
 let nextSeq = 1;
 
+type PendingInput =
+  | { seq: number; kind: "dir"; name: DirKey; shift: boolean }
+  | { seq: number; kind: "space" };
+const pendingInputs: PendingInput[] = [];
+
+function applyPending(b: Ball, inp: PendingInput) {
+  if (inp.kind === "dir") applyDir(b, inp.name, inp.shift);
+  else applySpace(b);
+}
+
 renderer.keyInput.on("keypress", (k: KeyEvent) => {
   if (k.eventType === "repeat") return;
   lastKey = `${k.name ?? "?"}${k.shift ? "+S" : ""}${k.ctrl ? "+C" : ""}`;
@@ -473,15 +553,19 @@ renderer.keyInput.on("keypress", (k: KeyEvent) => {
   }
 
   if (k.name === "space") {
+    const seq = nextSeq++;
     if (canAct()) applySpace(localBall!);
-    sendMsg({ t: "space", seq: nextSeq++ });
+    pendingInputs.push({ seq, kind: "space" });
+    sendMsg({ t: "space", seq });
     return;
   }
 
   const name = k.name ? DIR_NAMES[k.name] : undefined;
   if (name) {
+    const seq = nextSeq++;
     if (canAct()) applyDir(localBall!, name, !!k.shift);
-    sendMsg({ t: "dir", seq: nextSeq++, name, shift: !!k.shift });
+    pendingInputs.push({ seq, kind: "dir", name, shift: !!k.shift });
+    sendMsg({ t: "dir", seq, name, shift: !!k.shift });
   }
 });
 
@@ -505,9 +589,11 @@ function updateScene(dt: number) {
     }
   }
 
+  const renderNow = performance.now();
   for (let i = 0; i < 2; i++) {
-    const snap = lastSnap[i];
     const useLocal = i === mySlot && localBall !== null;
+    const interp = useLocal ? null : interpOpponent(i, renderNow);
+    const snap = interp ?? lastSnap[i];
     const sx = useLocal ? localBall!.x : snap.x;
     const sy = useLocal ? localBall!.y : snap.y;
     const sCharging = useLocal ? localBall!.charging : snap.charging;
