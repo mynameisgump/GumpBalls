@@ -99,8 +99,8 @@ camera.lookAt(0, 0, 0);
 engine.setActiveCamera(camera);
 scene.add(camera);
 
-scene.add(new AmbientLight(0xffffff, 0.4));
-const sun = new DirectionalLight(0xffffff, 1.0);
+scene.add(new AmbientLight(0xffffff, 1.0));
+const sun = new DirectionalLight(0xffffff, 2.5);
 sun.position.set(5, 8, 10);
 scene.add(sun);
 
