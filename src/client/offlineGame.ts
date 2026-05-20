@@ -77,10 +77,12 @@ export function createOfflineGame() {
 
     if (status === "ended" && Date.now() - endedAt > RESET_MS) reset();
 
-    if (status === "playing" && Date.now() >= hitstopUntil) {
+    if (Date.now() >= hitstopUntil) {
       accum += dt;
       while (accum >= FIXED_DT) {
-        botTick(balls[1]!, balls[0]!, botState, FIXED_DT);
+        if (status === "playing") {
+          botTick(balls[1]!, balls[0]!, botState, FIXED_DT);
+        }
         const hit = physicsStep(balls, FIXED_DT);
         if (hit) {
           fx[hit.victim].flash = 1;
@@ -90,17 +92,18 @@ export function createOfflineGame() {
           );
           hitstopUntil = Date.now() + Math.min(20 + hit.dmg * 4, 120);
         }
-        const dead0 = balls[0]!.hp <= 0;
-        const dead1 = balls[1]!.hp <= 0;
-        if (dead0 || dead1) {
-          status = "ended";
-          winner = dead0 && dead1 ? 0 : dead0 ? 1 : 0;
-          endedAt = Date.now();
-          const loser: Slot = winner === 0 ? 1 : 0;
-          burstBlood(balls[loser]!.x, balls[loser]!.y);
-          ballMeshes[loser].visible = false;
-          arrows[loser].visible = false;
-          break;
+        if (status === "playing") {
+          const dead0 = balls[0]!.hp <= 0;
+          const dead1 = balls[1]!.hp <= 0;
+          if (dead0 || dead1) {
+            status = "ended";
+            winner = dead0 && dead1 ? 0 : dead0 ? 1 : 0;
+            endedAt = Date.now();
+            const loser: Slot = winner === 0 ? 1 : 0;
+            burstBlood(balls[loser]!.x, balls[loser]!.y);
+            ballMeshes[loser].visible = false;
+            arrows[loser].visible = false;
+          }
         }
         accum -= FIXED_DT;
       }
@@ -142,5 +145,22 @@ export function createOfflineGame() {
     return [balls[0]!.hp, balls[1]!.hp];
   }
 
-  return { show, hide, input, update, isActive: () => active, getHps };
+  function getStatus() {
+    return {
+      phase: status,
+      winner,
+      endedAt,
+      resetMs: RESET_MS,
+    };
+  }
+
+  return {
+    show,
+    hide,
+    input,
+    update,
+    isActive: () => active,
+    getHps,
+    getStatus,
+  };
 }

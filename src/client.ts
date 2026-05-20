@@ -14,12 +14,18 @@ import {
 import { createTitleScreen } from "./client/titleScreen";
 import { createOfflineGame } from "./client/offlineGame";
 import { createHpDisplay } from "./client/hpDisplay";
-import type { DirKey } from "./shared";
+import { createWinScreen } from "./client/winScreen";
+import type { DirKey, Slot } from "./shared";
+
+const ONLINE_RESET_MS = 5000;
 
 const font = await loadFont();
 const title = createTitleScreen(font);
 const offline = createOfflineGame();
 const hpDisplay = createHpDisplay(font);
+const winScreen = createWinScreen(font);
+
+let winShownEndedAt = 0;
 
 type Screen = "title" | "online" | "offline";
 let screen: Screen = "title";
@@ -31,6 +37,8 @@ function showGame() {
   for (const a of arrows) a.visible = false;
   hpDisplay.reset();
   hpDisplay.show();
+  winScreen.hide();
+  winShownEndedAt = 0;
 }
 
 function startOnline() {
@@ -101,6 +109,26 @@ renderer.keyInput.on("keypress", (k: KeyEvent) => {
   if (name) sendDir(name, !!k.shift);
 });
 
+function syncWinScreen(
+  ended: boolean,
+  winner: Slot | undefined,
+  endedAt: number,
+  resetMs: number,
+  dt: number,
+) {
+  if (ended && winner !== undefined) {
+    if (winShownEndedAt !== endedAt) {
+      winShownEndedAt = endedAt;
+      winScreen.show(winner);
+    }
+    const remaining = resetMs - (Date.now() - endedAt);
+    winScreen.update(remaining, dt);
+  } else if (winShownEndedAt !== 0) {
+    winScreen.hide();
+    winShownEndedAt = 0;
+  }
+}
+
 renderer.setFrameCallback(async (deltaMs: number) => {
   const dt = deltaMs / 1000;
   if (screen === "title") {
@@ -110,6 +138,8 @@ renderer.setFrameCallback(async (deltaMs: number) => {
     updateParticles(dt);
     const [h1, h2] = offline.getHps();
     hpDisplay.update(h1, h2);
+    const st = offline.getStatus();
+    syncWinScreen(st.phase === "ended", st.winner, st.endedAt, st.resetMs, dt);
   } else {
     updateServerScene(dt);
     updateParticles(dt);
@@ -119,6 +149,13 @@ renderer.setFrameCallback(async (deltaMs: number) => {
         netState.lastSnap[1].hp,
       );
     }
+    syncWinScreen(
+      netState.serverStatus === "ended",
+      netState.winner,
+      netState.endedAt,
+      ONLINE_RESET_MS,
+      dt,
+    );
   }
   await engine.drawScene(scene, fb.frameBuffer, deltaMs);
 });
