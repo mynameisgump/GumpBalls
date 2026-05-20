@@ -1,8 +1,4 @@
-import {
-  createCliRenderer,
-  FrameBufferRenderable,
-  RGBA,
-} from "@opentui/core";
+import { createCliRenderer, FrameBufferRenderable, RGBA } from "@opentui/core";
 import { ThreeCliRenderer, TextureUtils } from "@opentui/three";
 import {
   Scene,
@@ -50,9 +46,9 @@ export const engine = new ThreeCliRenderer(renderer, {
 await engine.init();
 
 export const scene = new Scene();
-export const camera = new PerspectiveCamera(45, engine.aspectRatio, 0.1, 100);
-camera.position.set(0, 0, 18);
-camera.lookAt(0, 0, 0);
+export const camera = new PerspectiveCamera(30, engine.aspectRatio, 0.1, 100);
+camera.position.set(0, 1, 30);
+camera.lookAt(0, 1, 0);
 engine.setActiveCamera(camera);
 scene.add(camera);
 

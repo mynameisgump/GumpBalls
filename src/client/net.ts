@@ -25,8 +25,6 @@ import {
   P_CHARGE,
 } from "./balls";
 import { burstBlood, clearBlood } from "./particles";
-import { hud, banner, hpBar } from "./hud";
-
 function parseServerUrl(): string {
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
@@ -58,7 +56,6 @@ export const netState: NetState = {
   lastKey: "-",
 };
 
-const RESET_MS = 5000;
 const FIXED_DT = 1 / TICK_HZ;
 const INTERP_DELAY_MS = 100;
 const SNAP_KEEP_MS = 500;
@@ -151,27 +148,6 @@ export function canAct(): boolean {
   );
 }
 
-export function setBanner() {
-  if (!netState.connected) {
-    banner.content = `connecting to ${SERVER_URL}...`;
-    return;
-  }
-  if (netState.mySlot === -1) {
-    banner.content = "spectator (match full)";
-    return;
-  }
-  if (netState.serverStatus === "waiting") {
-    banner.content = `you are P${netState.mySlot + 1}. waiting for opponent...`;
-  } else if (netState.serverStatus === "playing") {
-    banner.content = `you are P${netState.mySlot + 1}. fight!`;
-  } else if (netState.serverStatus === "ended") {
-    const youWon = netState.winner === netState.mySlot;
-    const remain = Math.max(0, RESET_MS - (Date.now() - netState.endedAt));
-    const secs = Math.ceil(remain / 1000);
-    banner.content = `P${(netState.winner ?? 0) + 1} wins! ${youWon ? "you win :)" : "you lose :("}  next match in ${secs}s`;
-  }
-}
-
 function triggerExplosion() {
   if (!netState.lastSnap || netState.winner === undefined) return;
   const loser: Slot = netState.winner === 0 ? 1 : 0;
@@ -200,11 +176,9 @@ function doConnect() {
   ws.binaryType = "arraybuffer";
   ws.onopen = () => {
     netState.connected = true;
-    setBanner();
   };
   ws.onclose = () => {
     netState.connected = false;
-    setBanner();
     setTimeout(doConnect, 1000);
   };
   ws.onerror = () => {
@@ -216,7 +190,6 @@ function doConnect() {
     if (!msg) return;
     if (msg.t === "slot") {
       netState.mySlot = msg.n;
-      setBanner();
     } else if (msg.t === "snap") {
       const prev = netState.serverStatus;
       netState.lastSnap = msg.balls;
@@ -261,7 +234,6 @@ function doConnect() {
           physAccum = 0;
         }
       }
-      setBanner();
     } else if (msg.t === "hit") {
       fx[msg.victim].flash = 1;
       fx[msg.attacker].punch = Math.max(
@@ -344,12 +316,4 @@ export function updateServerScene(dt: number) {
     }
   }
 
-  const p1 = netState.lastSnap[0];
-  const p2 = netState.lastSnap[1];
-  const tag = netState.mySlot >= 0 ? `P${netState.mySlot + 1}` : "spectator";
-  hud.content =
-    `${tag}  ` +
-    `P1 ${hpBar(p1.hp)} ${p1.hp.toFixed(0).padStart(3)}  ` +
-    `P2 ${hpBar(p2.hp)} ${p2.hp.toFixed(0).padStart(3)}  ` +
-    `last:${netState.lastKey}`;
 }

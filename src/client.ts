@@ -4,37 +4,47 @@ import { renderer, scene, engine, fb } from "./client/scene";
 import { loadFont } from "./client/font";
 import { ballMeshes, arrows } from "./client/balls";
 import { updateParticles } from "./client/particles";
-import { hud, banner } from "./client/hud";
 import {
   connect,
   netState,
   sendDir,
   sendSpace,
-  setBanner,
   updateServerScene,
 } from "./client/net";
 import { createTitleScreen } from "./client/titleScreen";
+import { createOfflineGame } from "./client/offlineGame";
+import { createHpDisplay } from "./client/hpDisplay";
 import type { DirKey } from "./shared";
 
 const font = await loadFont();
 const title = createTitleScreen(font);
+const offline = createOfflineGame();
+const hpDisplay = createHpDisplay(font);
 
-type Screen = "title" | "playing";
+type Screen = "title" | "online" | "offline";
 let screen: Screen = "title";
 
-hud.visible = false;
-banner.visible = false;
 title.show();
 
-function startMatch() {
-  screen = "playing";
-  title.hide();
-  hud.visible = true;
-  banner.visible = true;
+function showGame() {
   for (const m of ballMeshes) m.visible = true;
   for (const a of arrows) a.visible = false;
-  setBanner();
+  hpDisplay.reset();
+  hpDisplay.show();
+}
+
+function startOnline() {
+  screen = "online";
+  title.hide();
+  showGame();
   connect();
+}
+
+function startOffline() {
+  screen = "offline";
+  title.hide();
+  showGame();
+  offline.show();
 }
 
 function quit() {
@@ -67,11 +77,22 @@ renderer.keyInput.on("keypress", (k: KeyEvent) => {
 
   if (screen === "title") {
     const choice = title.onKey(k.name);
-    if (choice === "start") startMatch();
+    if (choice === "single") startOffline();
+    else if (choice === "multi") startOnline();
     else if (choice === "quit") quit();
     return;
   }
 
+  if (screen === "offline") {
+    if (k.name === "space") offline.input("space", false);
+    else {
+      const name = k.name ? DIR_NAMES[k.name] : undefined;
+      if (name) offline.input(name, !!k.shift);
+    }
+    return;
+  }
+
+  // online
   if (k.name === "space") {
     sendSpace();
     return;
@@ -84,10 +105,20 @@ renderer.setFrameCallback(async (deltaMs: number) => {
   const dt = deltaMs / 1000;
   if (screen === "title") {
     title.update(dt);
+  } else if (screen === "offline") {
+    offline.update(dt);
+    updateParticles(dt);
+    const [h1, h2] = offline.getHps();
+    hpDisplay.update(h1, h2);
   } else {
     updateServerScene(dt);
     updateParticles(dt);
-    if (netState.serverStatus === "ended") setBanner();
+    if (netState.lastSnap) {
+      hpDisplay.update(
+        netState.lastSnap[0].hp,
+        netState.lastSnap[1].hp,
+      );
+    }
   }
   await engine.drawScene(scene, fb.frameBuffer, deltaMs);
 });

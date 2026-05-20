@@ -62,4 +62,6 @@ Berserker — dmg scales as own HP drops.
 Magnet — passive pull on opponent when charging.
 Cheapest first pick: 2-3 stat-twist classes. Parry + Bomber best ability additions, both extend charge mech already there.
 
+- Make Text Shake on collision, maybe flash a color
+- Player ball color select
 -
