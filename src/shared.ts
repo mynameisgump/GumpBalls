@@ -18,8 +18,8 @@ export const BALL_MAX_Y = CEIL_Y - WALL_T / 2 - BALL_R;
 export const BALL_MIN_X = LEFT_X + WALL_T / 2 + BALL_R;
 export const BALL_MAX_X = RIGHT_X - WALL_T / 2 - BALL_R;
 
-export const TICK_HZ = 60;
-export const SNAP_HZ = 120;
+export const TICK_HZ = 128;
+export const SNAP_HZ = 128;
 export const MAX_HP = 100;
 export const DMG_THRESHOLD = 3;
 export const DMG_K = 2.5;
