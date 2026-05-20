@@ -26,6 +26,8 @@ Gump balls
 - Should probably refactor
   - Currently
 
+npx support?
+
 # Server Ideas
 
 - Ssh into game for a round robin tournament
