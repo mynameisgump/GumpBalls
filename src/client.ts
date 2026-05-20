@@ -1,556 +1,45 @@
 #!/usr/bin/env bun
+import { type KeyEvent } from "@opentui/core";
+import { renderer, scene, engine, fb } from "./client/scene";
+import { loadFont } from "./client/font";
+import { ballMeshes, arrows } from "./client/balls";
+import { updateParticles } from "./client/particles";
+import { hud, banner } from "./client/hud";
 import {
-  createCliRenderer,
-  FrameBufferRenderable,
-  RGBA,
-  TextRenderable,
-  type KeyEvent,
-} from "@opentui/core";
-import { ThreeCliRenderer, TextureUtils } from "@opentui/three";
-import {
-  Scene,
-  PerspectiveCamera,
-  Mesh,
-  SphereGeometry,
-  BoxGeometry,
-  MeshStandardMaterial,
-  MeshBasicMaterial,
-  InstancedMesh,
-  Matrix4,
-  AmbientLight,
-  DirectionalLight,
-  Vector3,
-  Box3,
-  ArrowHelper,
-  RepeatWrapping,
-} from "three";
-import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js";
-import { TextGeometry } from "three/examples/jsm/geometries/TextGeometry.js";
-import { MeshStandardNodeMaterial } from "three/webgpu";
-import {
-  positionLocal,
-  normalLocal,
-  uniform,
-  time,
-  mx_noise_float,
-} from "three/tsl";
-import {
-  BALL_MIN_Y,
-  BALL_R,
-  CEIL_Y,
-  FLOOR_Y,
-  LEFT_X,
-  MAX_HP,
-  PORT,
-  RIGHT_X,
-  ROOM_H,
-  ROOM_W,
-  TICK_HZ,
-  WALL_T,
-  applyDir,
-  applySpace,
-  decodeServerMsg,
-  encodeClientMsg,
-  stepBallSolo,
-  type Ball,
-  type BallSnap,
-  type ClientMsg,
-  type DirKey,
-  type Slot,
-} from "./shared";
+  connect,
+  netState,
+  sendDir,
+  sendSpace,
+  setBanner,
+  updateServerScene,
+} from "./client/net";
+import { createTitleScreen } from "./client/titleScreen";
+import type { DirKey } from "./shared";
 
-function parseServerUrl(): string {
-  const argv = process.argv.slice(2);
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === "--server" || a === "-s") return argv[++i] ?? "";
-    if (a.startsWith("--server=")) return a.slice("--server=".length);
-  }
-  return process.env.SERVER_URL ?? `ws://localhost:${PORT}`;
-}
-const SERVER_URL = parseServerUrl();
+const font = await loadFont();
+const title = createTitleScreen(font);
 
-const renderer = await createCliRenderer({
-  exitOnCtrlC: true,
-  targetFps: 60,
-  useKittyKeyboard: { events: true, disambiguate: true, alternateKeys: true },
-});
-renderer.start();
+type Screen = "title" | "playing";
+let screen: Screen = "title";
 
-let W = renderer.terminalWidth;
-let H = renderer.terminalHeight;
+hud.visible = false;
+banner.visible = false;
+title.show();
 
-const fb = new FrameBufferRenderable(renderer, {
-  id: "fb",
-  width: W,
-  height: H,
-  zIndex: 1,
-});
-renderer.root.add(fb);
-
-const engine = new ThreeCliRenderer(renderer, {
-  width: W,
-  height: H,
-  backgroundColor: RGBA.fromValues(0, 0, 0, 0),
-});
-await engine.init();
-
-const scene = new Scene();
-const camera = new PerspectiveCamera(45, engine.aspectRatio, 0.1, 100);
-camera.position.set(0, 0, 18);
-camera.lookAt(0, 0, 0);
-engine.setActiveCamera(camera);
-scene.add(camera);
-
-scene.add(new AmbientLight(0xffffff, 1.0));
-const sun = new DirectionalLight(0xffffff, 2.5);
-sun.position.set(5, 8, 10);
-scene.add(sun);
-
-const WALL_TEX = new URL("../public/wall/", import.meta.url).pathname;
-const [diffTex, normalTex, roughTex, metalTex] = await Promise.all([
-  TextureUtils.fromFile(`${WALL_TEX}metal_grate_rusty_diff_1k.jpg`),
-  TextureUtils.fromFile(`${WALL_TEX}metal_grate_rusty_nor_gl_1k.jpg`),
-  TextureUtils.fromFile(`${WALL_TEX}metal_grate_rusty_rough_1k.jpg`),
-  TextureUtils.fromFile(`${WALL_TEX}metal_grate_rusty_metal_1k.jpg`),
-]);
-for (const tex of [diffTex, normalTex, roughTex, metalTex]) {
-  if (!tex) continue;
-  tex.wrapS = RepeatWrapping;
-  tex.wrapT = RepeatWrapping;
-  tex.repeat.set(1.5, 1.5);
-  tex.needsUpdate = true;
-}
-const wallMat = new MeshStandardMaterial({
-  map: diffTex ?? undefined,
-  normalMap: normalTex ?? undefined,
-  roughnessMap: roughTex ?? undefined,
-  metalnessMap: metalTex ?? undefined,
-  metalness: 0.8,
-  roughness: 0.5,
-});
-const floor = new Mesh(new BoxGeometry(ROOM_W, WALL_T, 2), wallMat);
-floor.position.y = FLOOR_Y;
-const ceil = new Mesh(new BoxGeometry(ROOM_W, WALL_T, 2), wallMat);
-ceil.position.y = CEIL_Y;
-const leftWall = new Mesh(new BoxGeometry(WALL_T, ROOM_H, 2), wallMat);
-leftWall.position.x = LEFT_X;
-const rightWall = new Mesh(new BoxGeometry(WALL_T, ROOM_H, 2), wallMat);
-rightWall.position.x = RIGHT_X;
-const backWall = new Mesh(new BoxGeometry(ROOM_W, ROOM_H, WALL_T), wallMat);
-backWall.position.z = -1 - WALL_T / 2;
-scene.add(floor, ceil, leftWall, rightWall, backWall);
-
-const FONT_URL = new URL(
-  "../node_modules/three/examples/fonts/helvetiker_bold.typeface.json",
-  import.meta.url,
-).pathname;
-try {
-  const fontJson = JSON.parse(await Bun.file(FONT_URL).text());
-  const font = new FontLoader().parse(fontJson);
-  const textGeo = new TextGeometry("GUMP BALLS", {
-    font,
-    size: 1.2,
-    depth: 0.3,
-    curveSegments: 6,
-    bevelEnabled: true,
-    bevelThickness: 0.05,
-    bevelSize: 0.04,
-    bevelSegments: 2,
-  });
-  textGeo.computeBoundingBox();
-  const bb = textGeo.boundingBox as Box3;
-  const cx = -(bb.max.x + bb.min.x) / 2;
-  const titleMat = new MeshStandardMaterial({
-    color: 0xff3355,
-    emissive: 0x551122,
-    emissiveIntensity: 0.6,
-    metalness: 0.4,
-    roughness: 0.4,
-  });
-  const titleMesh = new Mesh(textGeo, titleMat);
-  titleMesh.position.set(cx, CEIL_Y + 1.2, 0);
-  scene.add(titleMesh);
-} catch (e) {
-  console.error("title text load failed:", (e as Error).message);
+function startMatch() {
+  screen = "playing";
+  title.hide();
+  hud.visible = true;
+  banner.visible = true;
+  for (const m of ballMeshes) m.visible = true;
+  for (const a of arrows) a.visible = false;
+  setBanner();
+  connect();
 }
 
-const P_COLORS = [0xff5533, 0x33ff66];
-const P_CHARGE = [0x33aaff, 0xffcc33];
-
-const BALL_TEX = new URL("../public/ball/", import.meta.url).pathname;
-const ballDiff = await TextureUtils.fromFile(
-  `${BALL_TEX}Skin_05_basecolor.jpg`,
-);
-
-const noiseFreq = uniform(6.0);
-const noiseSpeed = uniform(1.5);
-const noiseIntensity = uniform(0.06);
-
-function makeBallMat(color: number) {
-  const mat = new MeshStandardNodeMaterial({
-    map: ballDiff ?? undefined,
-    metalness: 0.2,
-    roughness: 0.5,
-  });
-  mat.color.setHex(color);
-  mat.emissive.setHex(0xffffff);
-  mat.emissiveIntensity = 0;
-  const n = mx_noise_float(
-    positionLocal.mul(noiseFreq).add(time.mul(noiseSpeed)),
-  );
-  mat.positionNode = positionLocal.add(normalLocal.mul(n).mul(noiseIntensity));
-  return mat;
-}
-
-const ballMats = P_COLORS.map((c) => makeBallMat(c));
-const ballMeshes = ballMats.map((m) => {
-  const mesh = new Mesh(new SphereGeometry(BALL_R, 32, 24), m);
-  mesh.position.set(0, BALL_MIN_Y, 0);
-  scene.add(mesh);
-  return mesh;
-});
-
-const PARTICLE_COUNT = 140;
-const particleGeo = new SphereGeometry(0.09, 6, 4);
-const particleMat = new MeshBasicMaterial({ color: 0xaa0011 });
-const bloodMesh = new InstancedMesh(particleGeo, particleMat, PARTICLE_COUNT);
-bloodMesh.frustumCulled = false;
-bloodMesh.visible = false;
-scene.add(bloodMesh);
-
-type Particle = {
-  x: number;
-  y: number;
-  z: number;
-  vx: number;
-  vy: number;
-  vz: number;
-  life: number;
-};
-const particles: Particle[] = Array.from({ length: PARTICLE_COUNT }, () => ({
-  x: 0,
-  y: 0,
-  z: 0,
-  vx: 0,
-  vy: 0,
-  vz: 0,
-  life: 0,
-}));
-const tmpMat = new Matrix4();
-const zeroMat = new Matrix4().makeScale(0, 0, 0);
-
-function burstBlood(x: number, y: number) {
-  for (const p of particles) {
-    p.x = x;
-    p.y = y;
-    p.z = 0;
-    const speed = 2 + Math.random() * 7;
-    const theta = Math.random() * Math.PI * 2;
-    const phi = Math.acos(2 * Math.random() - 1);
-    p.vx = Math.cos(theta) * Math.sin(phi) * speed;
-    p.vy = Math.sin(theta) * Math.sin(phi) * speed + 3;
-    p.vz = Math.cos(phi) * speed * 0.4;
-    p.life = 1.4 + Math.random() * 1.2;
-  }
-  bloodMesh.visible = true;
-  bloodMesh.count = PARTICLE_COUNT;
-}
-
-function clearBlood() {
-  for (const p of particles) p.life = 0;
-  for (let i = 0; i < PARTICLE_COUNT; i++) bloodMesh.setMatrixAt(i, zeroMat);
-  bloodMesh.instanceMatrix.needsUpdate = true;
-  bloodMesh.visible = false;
-}
-
-function updateParticles(dt: number) {
-  if (!bloodMesh.visible) return;
-  let anyAlive = false;
-  for (let i = 0; i < PARTICLE_COUNT; i++) {
-    const p = particles[i];
-    if (p.life <= 0) {
-      bloodMesh.setMatrixAt(i, zeroMat);
-      continue;
-    }
-    p.life -= dt;
-    p.vy += -14 * dt;
-    p.x += p.vx * dt;
-    p.y += p.vy * dt;
-    p.z += p.vz * dt;
-    const floor = BALL_MIN_Y - BALL_R;
-    if (p.y < floor) {
-      p.y = floor;
-      p.vy *= -0.3;
-      p.vx *= 0.6;
-      p.vz *= 0.6;
-    }
-    if (p.life > 0) {
-      tmpMat.makeTranslation(p.x, p.y, p.z);
-      bloodMesh.setMatrixAt(i, tmpMat);
-      anyAlive = true;
-    } else {
-      bloodMesh.setMatrixAt(i, zeroMat);
-    }
-  }
-  bloodMesh.instanceMatrix.needsUpdate = true;
-  if (!anyAlive) bloodMesh.visible = false;
-}
-
-const arrows = [0, 1].map((i) => {
-  const a = new ArrowHelper(
-    new Vector3(1, 0, 0),
-    new Vector3(),
-    0.001,
-    P_CHARGE[i],
-    0.4,
-    0.25,
-  );
-  a.visible = false;
-  scene.add(a);
-  return a;
-});
-
-const hud = new TextRenderable(renderer, {
-  id: "hud",
-  content: "",
-  zIndex: 10,
-  position: "absolute",
-  left: 1,
-  top: 0,
-  fg: RGBA.fromValues(1, 1, 1, 1),
-});
-renderer.root.add(hud);
-
-const banner = new TextRenderable(renderer, {
-  id: "banner",
-  content: "",
-  zIndex: 11,
-  position: "absolute",
-  left: 1,
-  top: 2,
-  fg: RGBA.fromValues(1, 1, 1, 1),
-});
-renderer.root.add(banner);
-
-let mySlot: Slot | -1 = -1;
-let lastSnap: BallSnap[] | null = null;
-let serverStatus: "waiting" | "playing" | "ended" = "waiting";
-let winner: Slot | undefined;
-let connected = false;
-let lastKey = "-";
-let endedAt = 0;
-const RESET_MS = 5000;
-
-let localBall: Ball | null = null;
-let physAccum = 0;
-const FIXED_DT = 1 / TICK_HZ;
-
-type SnapEntry = { t: number; balls: BallSnap[] };
-const snapBuf: SnapEntry[] = [];
-const INTERP_DELAY_MS = 100;
-const SNAP_KEEP_MS = 500;
-
-function interpOpponent(slot: number, now: number): BallSnap | null {
-  if (snapBuf.length === 0) return null;
-  const target = now - INTERP_DELAY_MS;
-  let a: SnapEntry | null = null;
-  let b: SnapEntry | null = null;
-  for (let i = snapBuf.length - 1; i >= 0; i--) {
-    if (snapBuf[i].t <= target) {
-      a = snapBuf[i];
-      b = snapBuf[i + 1] ?? null;
-      break;
-    }
-  }
-  if (a && b) {
-    const span = b.t - a.t;
-    const alpha = span > 0 ? Math.max(0, Math.min(1, (target - a.t) / span)) : 0;
-    const sa = a.balls[slot];
-    const sb = b.balls[slot];
-    return {
-      x: sa.x + (sb.x - sa.x) * alpha,
-      y: sa.y + (sb.y - sa.y) * alpha,
-      vx: sa.vx + (sb.vx - sa.vx) * alpha,
-      vy: sa.vy + (sb.vy - sa.vy) * alpha,
-      hp: sb.hp,
-      charging: sb.charging,
-      cx: sa.cx + (sb.cx - sa.cx) * alpha,
-      cy: sa.cy + (sb.cy - sa.cy) * alpha,
-    };
-  }
-  if (a && !b) {
-    const sa = a.balls[slot];
-    const dt = (target - a.t) / 1000;
-    return {
-      x: sa.x + sa.vx * dt,
-      y: sa.y + sa.vy * dt,
-      vx: sa.vx,
-      vy: sa.vy,
-      hp: sa.hp,
-      charging: sa.charging,
-      cx: sa.cx,
-      cy: sa.cy,
-    };
-  }
-  const sb = snapBuf[0].balls[slot];
-  return { ...sb };
-}
-
-function snapToLocal(s: BallSnap): Ball {
-  return {
-    x: s.x,
-    y: s.y,
-    vx: s.vx,
-    vy: s.vy,
-    hp: s.hp,
-    charging: s.charging,
-    cx: s.cx,
-    cy: s.cy,
-  };
-}
-
-function canAct(): boolean {
-  return (
-    mySlot >= 0 &&
-    localBall !== null &&
-    serverStatus === "playing" &&
-    localBall.hp > 0
-  );
-}
-
-function hpBar(hp: number, width = 20) {
-  const filled = Math.round((hp / MAX_HP) * width);
-  return "[" + "#".repeat(filled) + "-".repeat(width - filled) + "]";
-}
-
-function setBanner() {
-  if (!connected) {
-    banner.content = `connecting to ${SERVER_URL}...`;
-    return;
-  }
-  if (mySlot === -1) {
-    banner.content = "spectator (match full)";
-    return;
-  }
-  if (serverStatus === "waiting") {
-    banner.content = `you are P${mySlot + 1}. waiting for opponent...`;
-  } else if (serverStatus === "playing") {
-    banner.content = `you are P${mySlot + 1}. fight!`;
-  } else if (serverStatus === "ended") {
-    const youWon = winner === mySlot;
-    const remain = Math.max(0, RESET_MS - (Date.now() - endedAt));
-    const secs = Math.ceil(remain / 1000);
-    banner.content = `P${(winner ?? 0) + 1} wins! ${youWon ? "you win :)" : "you lose :("}  next match in ${secs}s`;
-  }
-}
-
-const fx = [
-  { flash: 0, punch: 0 },
-  { flash: 0, punch: 0 },
-];
-const FLASH_DECAY = 0.07;
-const PUNCH_DECAY = 0.09;
-const PUNCH_MAX_SCALE = 0.55;
-
-function resetFx() {
-  for (const f of fx) {
-    f.flash = 0;
-    f.punch = 0;
-  }
-  for (const m of ballMeshes) m.scale.setScalar(1);
-}
-
-function triggerExplosion() {
-  if (!lastSnap || winner === undefined) return;
-  const loser: Slot = winner === 0 ? 1 : 0;
-  const lp = lastSnap[loser];
-  burstBlood(lp.x, lp.y);
-  ballMeshes[loser].visible = false;
-  arrows[loser].visible = false;
-}
-
-let ws: WebSocket | null = null;
-function connect() {
-  ws = new WebSocket(SERVER_URL);
-  ws.binaryType = "arraybuffer";
-  ws.onopen = () => {
-    connected = true;
-    setBanner();
-  };
-  ws.onclose = () => {
-    connected = false;
-    setBanner();
-    setTimeout(connect, 1000);
-  };
-  ws.onerror = () => {
-    // close handler will retry
-  };
-  ws.onmessage = (ev) => {
-    if (!(ev.data instanceof ArrayBuffer)) return;
-    const msg = decodeServerMsg(ev.data);
-    if (!msg) return;
-    if (msg.t === "slot") {
-      mySlot = msg.n;
-      setBanner();
-    } else if (msg.t === "snap") {
-      const prev = serverStatus;
-      lastSnap = msg.balls;
-      serverStatus = msg.status;
-      winner = msg.winner;
-      const now = performance.now();
-      if (prev !== serverStatus) snapBuf.length = 0;
-      snapBuf.push({ t: now, balls: msg.balls });
-      const cutoff = now - SNAP_KEEP_MS;
-      while (snapBuf.length > 2 && snapBuf[0].t < cutoff) snapBuf.shift();
-      if (prev !== "ended" && serverStatus === "ended") {
-        endedAt = Date.now();
-        triggerExplosion();
-      }
-      if (prev === "ended" && serverStatus !== "ended") {
-        endedAt = 0;
-        ballMeshes[0].visible = true;
-        ballMeshes[1].visible = true;
-        clearBlood();
-        resetFx();
-      }
-      if (mySlot >= 0) {
-        const slot = mySlot as Slot;
-        const mySnap = msg.balls[slot]!;
-        const ack = msg.ack[slot] ?? 0;
-        while (pendingInputs.length > 0 && pendingInputs[0].seq <= ack) {
-          pendingInputs.shift();
-        }
-        if (!localBall || prev !== serverStatus) {
-          localBall = snapToLocal(mySnap);
-          physAccum = 0;
-        } else {
-          localBall.x = mySnap.x;
-          localBall.y = mySnap.y;
-          localBall.vx = mySnap.vx;
-          localBall.vy = mySnap.vy;
-          localBall.hp = mySnap.hp;
-          localBall.charging = mySnap.charging;
-          localBall.cx = mySnap.cx;
-          localBall.cy = mySnap.cy;
-          for (const inp of pendingInputs) applyPending(localBall, inp);
-          physAccum = 0;
-        }
-      }
-      setBanner();
-    } else if (msg.t === "hit") {
-      fx[msg.victim].flash = 1;
-      fx[msg.attacker].punch = Math.max(
-        fx[msg.attacker].punch,
-        Math.min(1, msg.dmg / 12),
-      );
-    }
-  };
-}
-connect();
-
-function sendMsg(m: ClientMsg) {
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(encodeClientMsg(m));
+function quit() {
+  renderer.destroy();
+  process.exit(0);
 }
 
 const DIR_NAMES: Record<string, DirKey> = {
@@ -568,117 +57,37 @@ const DIR_NAMES: Record<string, DirKey> = {
   c: "c",
 };
 
-let nextSeq = 1;
-
-type PendingInput =
-  | { seq: number; kind: "dir"; name: DirKey; shift: boolean }
-  | { seq: number; kind: "space" };
-const pendingInputs: PendingInput[] = [];
-
-function applyPending(b: Ball, inp: PendingInput) {
-  if (inp.kind === "dir") applyDir(b, inp.name, inp.shift);
-  else applySpace(b);
-}
-
 renderer.keyInput.on("keypress", (k: KeyEvent) => {
   if (k.eventType === "repeat") return;
-  lastKey = `${k.name ?? "?"}${k.shift ? "+S" : ""}${k.ctrl ? "+C" : ""}`;
+  netState.lastKey = `${k.name ?? "?"}${k.shift ? "+S" : ""}${k.ctrl ? "+C" : ""}`;
 
   if (k.ctrl && (k.name === "c" || k.name === "q")) {
-    renderer.destroy();
-    process.exit(0);
+    quit();
   }
 
-  if (k.name === "space") {
-    const seq = nextSeq++;
-    if (canAct()) applySpace(localBall!);
-    pendingInputs.push({ seq, kind: "space" });
-    sendMsg({ t: "space", seq });
+  if (screen === "title") {
+    const choice = title.onKey(k.name);
+    if (choice === "start") startMatch();
+    else if (choice === "quit") quit();
     return;
   }
 
+  if (k.name === "space") {
+    sendSpace();
+    return;
+  }
   const name = k.name ? DIR_NAMES[k.name] : undefined;
-  if (name) {
-    const seq = nextSeq++;
-    if (canAct()) applyDir(localBall!, name, !!k.shift);
-    pendingInputs.push({ seq, kind: "dir", name, shift: !!k.shift });
-    sendMsg({ t: "dir", seq, name, shift: !!k.shift });
-  }
+  if (name) sendDir(name, !!k.shift);
 });
-
-renderer.on("resize", (w: number, h: number) => {
-  W = w;
-  H = h;
-  fb.frameBuffer.resize(w, h);
-  engine.setSize(w, h);
-  camera.aspect = engine.aspectRatio;
-  camera.updateProjectionMatrix();
-});
-
-function updateScene(dt: number) {
-  if (!lastSnap) return;
-
-  if (localBall && serverStatus === "playing" && localBall.hp > 0) {
-    physAccum += dt;
-    while (physAccum >= FIXED_DT) {
-      stepBallSolo(localBall, FIXED_DT);
-      physAccum -= FIXED_DT;
-    }
-  }
-
-  const renderNow = performance.now();
-  for (let i = 0; i < 2; i++) {
-    const useLocal = i === mySlot && localBall !== null;
-    const interp = useLocal ? null : interpOpponent(i, renderNow);
-    const snap = interp ?? lastSnap[i];
-    const sx = useLocal ? localBall!.x : snap.x;
-    const sy = useLocal ? localBall!.y : snap.y;
-    const sCharging = useLocal ? localBall!.charging : snap.charging;
-    const sCx = useLocal ? localBall!.cx : snap.cx;
-    const sCy = useLocal ? localBall!.cy : snap.cy;
-
-    const mesh = ballMeshes[i];
-    mesh.position.set(sx, sy, 0);
-    const f = fx[i];
-    if (f.flash > 0) f.flash = Math.max(0, f.flash - dt / FLASH_DECAY);
-    if (f.punch > 0) f.punch = Math.max(0, f.punch - dt / PUNCH_DECAY);
-    const base = sCharging ? P_CHARGE[i] : P_COLORS[i];
-    const mat = ballMats[i];
-    mat.color.setHex(base);
-    mat.emissiveIntensity = f.flash * 3;
-    mesh.scale.setScalar(1 + f.punch * PUNCH_MAX_SCALE);
-
-    const a = arrows[i];
-    const len = Math.hypot(sCx, sCy);
-    if (sCharging && len > 1e-3 && mesh.visible) {
-      a.visible = true;
-      a.position.copy(mesh.position);
-      a.setDirection(new Vector3(sCx, sCy, 0).normalize());
-      const visLen = Math.min(len * 0.18, 5);
-      a.setLength(
-        visLen,
-        Math.min(0.5, visLen * 0.25),
-        Math.min(0.3, visLen * 0.18),
-      );
-    } else {
-      a.visible = false;
-    }
-  }
-
-  const p1 = lastSnap[0];
-  const p2 = lastSnap[1];
-  const tag = mySlot >= 0 ? `P${mySlot + 1}` : "spectator";
-  hud.content =
-    `${tag}  ` +
-    `P1 ${hpBar(p1.hp)} ${p1.hp.toFixed(0).padStart(3)}  ` +
-    `P2 ${hpBar(p2.hp)} ${p2.hp.toFixed(0).padStart(3)}  ` +
-    `last:${lastKey}`;
-}
 
 renderer.setFrameCallback(async (deltaMs: number) => {
   const dt = deltaMs / 1000;
-  updateScene(dt);
-  updateParticles(dt);
-  if (serverStatus === "ended") setBanner();
+  if (screen === "title") {
+    title.update(dt);
+  } else {
+    updateServerScene(dt);
+    updateParticles(dt);
+    if (netState.serverStatus === "ended") setBanner();
+  }
   await engine.drawScene(scene, fb.frameBuffer, deltaMs);
 });

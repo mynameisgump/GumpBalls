@@ -1,0 +1,83 @@
+import {
+  Mesh,
+  SphereGeometry,
+  Vector3,
+  ArrowHelper,
+} from "three";
+import { TextureUtils } from "@opentui/three";
+import { MeshStandardNodeMaterial } from "three/webgpu";
+import {
+  positionLocal,
+  normalLocal,
+  uniform,
+  time,
+  mx_noise_float,
+} from "three/tsl";
+import { BALL_MIN_Y, BALL_R } from "../shared";
+import { scene } from "./scene";
+
+export const P_COLORS = [0xff5533, 0x33ff66];
+export const P_CHARGE = [0x33aaff, 0xffcc33];
+
+const BALL_TEX = new URL("../../public/ball/", import.meta.url).pathname;
+const ballDiff = await TextureUtils.fromFile(
+  `${BALL_TEX}Skin_05_basecolor.jpg`,
+);
+
+const noiseFreq = uniform(6.0);
+const noiseSpeed = uniform(1.5);
+const noiseIntensity = uniform(0.06);
+
+function makeBallMat(color: number) {
+  const mat = new MeshStandardNodeMaterial({
+    map: ballDiff ?? undefined,
+    metalness: 0.2,
+    roughness: 0.5,
+  });
+  mat.color.setHex(color);
+  mat.emissive.setHex(0xffffff);
+  mat.emissiveIntensity = 0;
+  const n = mx_noise_float(
+    positionLocal.mul(noiseFreq).add(time.mul(noiseSpeed)),
+  );
+  mat.positionNode = positionLocal.add(normalLocal.mul(n).mul(noiseIntensity));
+  return mat;
+}
+
+export const ballMats = P_COLORS.map((c) => makeBallMat(c));
+export const ballMeshes = ballMats.map((m) => {
+  const mesh = new Mesh(new SphereGeometry(BALL_R, 32, 24), m);
+  mesh.position.set(0, BALL_MIN_Y, 0);
+  scene.add(mesh);
+  return mesh;
+});
+
+export const arrows = [0, 1].map((i) => {
+  const a = new ArrowHelper(
+    new Vector3(1, 0, 0),
+    new Vector3(),
+    0.001,
+    P_CHARGE[i],
+    0.4,
+    0.25,
+  );
+  a.visible = false;
+  scene.add(a);
+  return a;
+});
+
+export const fx = [
+  { flash: 0, punch: 0 },
+  { flash: 0, punch: 0 },
+];
+export const FLASH_DECAY = 0.07;
+export const PUNCH_DECAY = 0.09;
+export const PUNCH_MAX_SCALE = 0.55;
+
+export function resetFx() {
+  for (const f of fx) {
+    f.flash = 0;
+    f.punch = 0;
+  }
+  for (const m of ballMeshes) m.scale.setScalar(1);
+}

@@ -12,10 +12,10 @@ import {
   physicsStep,
   type Ball,
   type BallSnap,
-  type DirKey,
   type ServerMsg,
   type Slot,
 } from "./shared";
+import { botTick, makeBotState, resetBotState, type BotState } from "./bot";
 
 type WSData = { slot: Slot | -1 };
 
@@ -46,90 +46,14 @@ let hitstopUntil = 0;
 let simTick = 0;
 const lastAckSeq: [number, number] = [0, 0];
 
-type BotState = {
-  mode: "wander" | "charge";
-  t: number;
-  chargeDur: number;
-  inputCd: number;
-};
 const botStates = new Map<Slot, BotState>();
-for (const s of botSlots) {
-  botStates.set(s, { mode: "wander", t: 0, chargeDur: 0, inputCd: 0 });
-}
+for (const s of botSlots) botStates.set(s, makeBotState());
 
 function slotFilled(s: Slot): boolean {
   return sockets[s] !== null || botSlots.has(s);
 }
 function bothFilled(): boolean {
   return slotFilled(0) && slotFilled(1);
-}
-
-function aimDir(dx: number, dy: number): DirKey {
-  const ax = Math.abs(dx);
-  const ay = Math.abs(dy);
-  const diag = ax > 0.4 * ay && ay > 0.4 * ax;
-  if (diag) {
-    if (dx >= 0 && dy >= 0) return "e";
-    if (dx < 0 && dy >= 0) return "q";
-    if (dx >= 0 && dy < 0) return "c";
-    return "z";
-  }
-  if (ax > ay) return dx > 0 ? "d" : "a";
-  return dy > 0 ? "w" : "s";
-}
-
-function botTick(slot: Slot, dt: number) {
-  if (status !== "playing") return;
-  const me = balls[slot]!;
-  const opp = balls[1 - slot]!;
-  if (me.hp <= 0) return;
-  const st = botStates.get(slot)!;
-  st.t += dt;
-  st.inputCd -= dt;
-  const dx = opp.x - me.x;
-  const dy = opp.y - me.y;
-
-  if (st.mode === "wander") {
-    if (st.t > 0.5 + Math.random() * 0.8) {
-      applySpace(me);
-      st.mode = "charge";
-      st.t = 0;
-      st.chargeDur = 0.5 + Math.random() * 0.8;
-      st.inputCd = 0.05;
-      return;
-    }
-    if (st.inputCd <= 0) {
-      const r = Math.random();
-      if (r < 0.35) applyDir(me, "w", Math.random() < 0.5);
-      else if (r < 0.5) {
-        const diag: DirKey = dx > 0 ? "e" : "q";
-        applyDir(me, diag, Math.random() < 0.5);
-      } else if (Math.abs(dx) > 0.6) {
-        applyDir(me, dx > 0 ? "d" : "a", false);
-      }
-      st.inputCd = 0.12 + Math.random() * 0.18;
-    }
-  } else {
-    if (st.inputCd <= 0) {
-      let dir: DirKey;
-      if (Math.random() < 0.2) {
-        const choices: DirKey[] = ["q", "w", "e", "a", "d", "z", "c"];
-        dir = choices[Math.floor(Math.random() * choices.length)]!;
-      } else {
-        const jx = (Math.random() - 0.5) * 3;
-        const jy = (Math.random() - 0.5) * 3 + 2.5;
-        dir = aimDir(dx + jx, dy + jy);
-      }
-      applyDir(me, dir, Math.random() < 0.75);
-      st.inputCd = 0.1 + Math.random() * 0.1;
-    }
-    if (st.t >= st.chargeDur) {
-      applySpace(me);
-      st.mode = "wander";
-      st.t = 0;
-      st.inputCd = 0.2;
-    }
-  }
 }
 
 function snapshot(): BallSnap[] {
@@ -162,17 +86,16 @@ function resetMatch() {
   hitstopUntil = 0;
   lastAckSeq[0] = 0;
   lastAckSeq[1] = 0;
-  for (const [, st] of botStates) {
-    st.mode = "wander";
-    st.t = 0;
-    st.chargeDur = 0;
-    st.inputCd = 0;
-  }
+  for (const [, st] of botStates) resetBotState(st);
   status = bothFilled() ? "playing" : "waiting";
 }
 
 function tick(dt: number) {
-  for (const s of botSlots) botTick(s, dt);
+  if (status === "playing") {
+    for (const s of botSlots) {
+      botTick(balls[s]!, balls[1 - s]!, botStates.get(s)!, dt);
+    }
+  }
   const hit = physicsStep(balls, dt);
   if (hit) {
     broadcast({ t: "hit", ...hit });
