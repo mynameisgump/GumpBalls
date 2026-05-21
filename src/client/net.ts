@@ -2,6 +2,7 @@ import { Vector3 } from "three";
 import {
   PORT,
   TICK_HZ,
+  MAX_INPUTS_PER_BATCH,
   applyDir,
   applySpace,
   decodeServerMsg,
@@ -11,6 +12,7 @@ import {
   type BallSnap,
   type ClientMsg,
   type DirKey,
+  type InputItem,
   type Slot,
 } from "../shared";
 import {
@@ -25,16 +27,27 @@ import {
   P_CHARGE,
 } from "./balls";
 import { burstBlood, clearBlood } from "./particles";
-function parseServerUrl(): string {
+
+function parseServerEndpoint(): { hostname: string; port: number } {
   const argv = process.argv.slice(2);
+  let raw = process.env.SERVER_URL ?? `localhost:${PORT}`;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--server" || a === "-s") return argv[++i] ?? "";
-    if (a.startsWith("--server=")) return a.slice("--server=".length);
+    if (a === "--server" || a === "-s") {
+      raw = argv[++i] ?? raw;
+    } else if (a.startsWith("--server=")) {
+      raw = a.slice("--server=".length);
+    }
   }
-  return process.env.SERVER_URL ?? `ws://localhost:${PORT}`;
+  raw = raw.replace(/^ws:\/\//, "").replace(/^udp:\/\//, "");
+  const idx = raw.lastIndexOf(":");
+  if (idx < 0) return { hostname: raw, port: PORT };
+  const host = raw.slice(0, idx);
+  const port = parseInt(raw.slice(idx + 1), 10);
+  return { hostname: host || "localhost", port: Number.isFinite(port) ? port : PORT };
 }
-export const SERVER_URL = parseServerUrl();
+
+export const SERVER_ENDPOINT = parseServerEndpoint();
 
 export type NetState = {
   mySlot: Slot | -1;
@@ -59,6 +72,8 @@ export const netState: NetState = {
 const FIXED_DT = 1 / TICK_HZ;
 const INTERP_DELAY_MS = 100;
 const SNAP_KEEP_MS = 500;
+const SNAP_TIMEOUT_MS = 3000;
+const HEARTBEAT_MS = 1000;
 
 let localBall: Ball | null = null;
 let physAccum = 0;
@@ -66,13 +81,14 @@ let physAccum = 0;
 type SnapEntry = { t: number; balls: BallSnap[] };
 const snapBuf: SnapEntry[] = [];
 
-type PendingInput =
-  | { seq: number; kind: "dir"; name: DirKey; shift: boolean }
-  | { seq: number; kind: "space" };
-const pendingInputs: PendingInput[] = [];
+const pendingInputs: InputItem[] = [];
 let nextSeq = 1;
+let lastSnapTick = -1;
+let lastSnapAt = 0;
+let lastHeartbeatAt = 0;
 
-let ws: WebSocket | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let sock: any = null;
 let connectStarted = false;
 
 function snapToLocal(s: BallSnap): Ball {
@@ -88,7 +104,7 @@ function snapToLocal(s: BallSnap): Ball {
   };
 }
 
-function applyPending(b: Ball, inp: PendingInput) {
+function applyPending(b: Ball, inp: InputItem) {
   if (inp.kind === "dir") applyDir(b, inp.name, inp.shift);
   else applySpace(b);
 }
@@ -165,104 +181,159 @@ function resetFxLocal() {
   for (const m of ballMeshes) m.scale.setScalar(1);
 }
 
+function sendRaw(buf: ArrayBuffer) {
+  if (!sock) return;
+  try {
+    sock.send(new Uint8Array(buf));
+  } catch {
+    // socket may be mid-reconnect
+  }
+}
+
+function sendMsg(m: ClientMsg) {
+  sendRaw(encodeClientMsg(m));
+}
+
+function flushInputs() {
+  if (pendingInputs.length === 0) return;
+  const items = pendingInputs.slice(-MAX_INPUTS_PER_BATCH);
+  sendMsg({ t: "inputs", items });
+}
+
+function handlePacket(ab: ArrayBuffer) {
+  const msg = decodeServerMsg(ab);
+  if (!msg) return;
+  if (msg.t === "slot") {
+    netState.mySlot = msg.n;
+  } else if (msg.t === "snap") {
+    if (msg.tick < lastSnapTick) return;
+    lastSnapTick = msg.tick;
+    lastSnapAt = performance.now();
+    const prev = netState.serverStatus;
+    netState.lastSnap = msg.balls;
+    netState.serverStatus = msg.status;
+    netState.winner = msg.winner;
+    const now = performance.now();
+    if (prev !== netState.serverStatus) {
+      snapBuf.length = 0;
+      pendingInputs.length = 0;
+    }
+    snapBuf.push({ t: now, balls: msg.balls });
+    const cutoff = now - SNAP_KEEP_MS;
+    while (snapBuf.length > 2 && snapBuf[0].t < cutoff) snapBuf.shift();
+    if (prev !== "ended" && netState.serverStatus === "ended") {
+      netState.endedAt = Date.now();
+      triggerExplosion();
+    }
+    if (prev === "ended" && netState.serverStatus !== "ended") {
+      netState.endedAt = 0;
+      ballMeshes[0].visible = true;
+      ballMeshes[1].visible = true;
+      clearBlood();
+      resetFxLocal();
+    }
+    if (netState.mySlot >= 0) {
+      const slot = netState.mySlot as Slot;
+      const mySnap = msg.balls[slot]!;
+      const ack = msg.ack[slot] ?? 0;
+      while (pendingInputs.length > 0 && pendingInputs[0].seq <= ack) {
+        pendingInputs.shift();
+      }
+      if (!localBall || prev !== netState.serverStatus) {
+        localBall = snapToLocal(mySnap);
+        physAccum = 0;
+      } else {
+        localBall.x = mySnap.x;
+        localBall.y = mySnap.y;
+        localBall.vx = mySnap.vx;
+        localBall.vy = mySnap.vy;
+        localBall.hp = mySnap.hp;
+        localBall.charging = mySnap.charging;
+        localBall.cx = mySnap.cx;
+        localBall.cy = mySnap.cy;
+        for (const inp of pendingInputs) applyPending(localBall, inp);
+        physAccum = 0;
+      }
+    }
+  } else if (msg.t === "hit") {
+    fx[msg.victim].flash = 1;
+    fx[msg.attacker].punch = Math.max(
+      fx[msg.attacker].punch,
+      Math.min(1, msg.dmg / 12),
+    );
+  }
+}
+
 export function connect() {
   if (connectStarted) return;
   connectStarted = true;
   doConnect();
 }
 
-function doConnect() {
-  ws = new WebSocket(SERVER_URL);
-  ws.binaryType = "arraybuffer";
-  ws.onopen = () => {
+async function doConnect() {
+  try {
+    sock = await Bun.udpSocket({
+      connect: { hostname: SERVER_ENDPOINT.hostname, port: SERVER_ENDPOINT.port },
+      socket: {
+        data(_s: unknown, buf: Buffer) {
+          const ab = buf.buffer.slice(
+            buf.byteOffset,
+            buf.byteOffset + buf.byteLength,
+          ) as ArrayBuffer;
+          handlePacket(ab);
+        },
+      },
+    });
     netState.connected = true;
-  };
-  ws.onclose = () => {
+    lastSnapAt = performance.now();
+    sendMsg({ t: "hello" });
+  } catch {
     netState.connected = false;
     setTimeout(doConnect, 1000);
-  };
-  ws.onerror = () => {
-    // close handler will retry
-  };
-  ws.onmessage = (ev) => {
-    if (!(ev.data instanceof ArrayBuffer)) return;
-    const msg = decodeServerMsg(ev.data);
-    if (!msg) return;
-    if (msg.t === "slot") {
-      netState.mySlot = msg.n;
-    } else if (msg.t === "snap") {
-      const prev = netState.serverStatus;
-      netState.lastSnap = msg.balls;
-      netState.serverStatus = msg.status;
-      netState.winner = msg.winner;
-      const now = performance.now();
-      if (prev !== netState.serverStatus) snapBuf.length = 0;
-      snapBuf.push({ t: now, balls: msg.balls });
-      const cutoff = now - SNAP_KEEP_MS;
-      while (snapBuf.length > 2 && snapBuf[0].t < cutoff) snapBuf.shift();
-      if (prev !== "ended" && netState.serverStatus === "ended") {
-        netState.endedAt = Date.now();
-        triggerExplosion();
-      }
-      if (prev === "ended" && netState.serverStatus !== "ended") {
-        netState.endedAt = 0;
-        ballMeshes[0].visible = true;
-        ballMeshes[1].visible = true;
-        clearBlood();
-        resetFxLocal();
-      }
-      if (netState.mySlot >= 0) {
-        const slot = netState.mySlot as Slot;
-        const mySnap = msg.balls[slot]!;
-        const ack = msg.ack[slot] ?? 0;
-        while (pendingInputs.length > 0 && pendingInputs[0].seq <= ack) {
-          pendingInputs.shift();
-        }
-        if (!localBall || prev !== netState.serverStatus) {
-          localBall = snapToLocal(mySnap);
-          physAccum = 0;
-        } else {
-          localBall.x = mySnap.x;
-          localBall.y = mySnap.y;
-          localBall.vx = mySnap.vx;
-          localBall.vy = mySnap.vy;
-          localBall.hp = mySnap.hp;
-          localBall.charging = mySnap.charging;
-          localBall.cx = mySnap.cx;
-          localBall.cy = mySnap.cy;
-          for (const inp of pendingInputs) applyPending(localBall, inp);
-          physAccum = 0;
-        }
-      }
-    } else if (msg.t === "hit") {
-      fx[msg.victim].flash = 1;
-      fx[msg.attacker].punch = Math.max(
-        fx[msg.attacker].punch,
-        Math.min(1, msg.dmg / 12),
-      );
-    }
-  };
+  }
 }
 
-function sendMsg(m: ClientMsg) {
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(encodeClientMsg(m));
+function maintainConnection() {
+  const now = performance.now();
+  if (!sock) return;
+  if (now - lastHeartbeatAt > HEARTBEAT_MS) {
+    lastHeartbeatAt = now;
+    sendMsg({ t: "hello" });
+  }
+  if (lastSnapAt > 0 && now - lastSnapAt > SNAP_TIMEOUT_MS) {
+    try {
+      sock.close?.();
+    } catch {
+      // ignore
+    }
+    sock = null;
+    netState.connected = false;
+    netState.lastSnap = null;
+    snapBuf.length = 0;
+    lastSnapTick = -1;
+    pendingInputs.length = 0;
+    nextSeq = 1;
+    localBall = null;
+    setTimeout(doConnect, 500);
+  }
 }
 
 export function sendDir(name: DirKey, shift: boolean) {
   const seq = nextSeq++;
   if (canAct()) applyDir(localBall!, name, shift);
-  pendingInputs.push({ seq, kind: "dir", name, shift });
-  sendMsg({ t: "dir", seq, name, shift });
+  pendingInputs.push({ kind: "dir", seq, name, shift });
+  flushInputs();
 }
 
 export function sendSpace() {
   const seq = nextSeq++;
   if (canAct()) applySpace(localBall!);
-  pendingInputs.push({ seq, kind: "space" });
-  sendMsg({ t: "space", seq });
+  pendingInputs.push({ kind: "space", seq });
+  flushInputs();
 }
 
 export function updateServerScene(dt: number) {
+  maintainConnection();
   if (!netState.lastSnap) return;
 
   if (
@@ -315,5 +386,4 @@ export function updateServerScene(dt: number) {
       a.visible = false;
     }
   }
-
 }

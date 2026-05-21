@@ -1,5 +1,4 @@
 #!/usr/bin/env bun
-import type { ServerWebSocket } from "bun";
 import {
   PORT,
   SNAP_HZ,
@@ -17,7 +16,15 @@ import {
 } from "./shared";
 import { botTick, makeBotState, resetBotState, type BotState } from "./bot";
 
-type WSData = { slot: Slot | -1 };
+const PEER_TIMEOUT_MS = 5000;
+
+type Peer = {
+  addr: string;
+  port: number;
+  slot: Slot | -1;
+  lastSeen: number;
+  lastAckSeq: number;
+};
 
 const botSlots = new Set<Slot>();
 {
@@ -38,19 +45,22 @@ const botSlots = new Set<Slot>();
 }
 
 const balls: Ball[] = [makeBall(0), makeBall(1)];
-const sockets: (ServerWebSocket<WSData> | null)[] = [null, null];
-const spectators = new Set<ServerWebSocket<WSData>>();
+const peers = new Map<string, Peer>();
+const slotPeer: (Peer | null)[] = [null, null];
 let status: "waiting" | "playing" | "ended" = "waiting";
 let winner: Slot | undefined;
 let hitstopUntil = 0;
 let simTick = 0;
-const lastAckSeq: [number, number] = [0, 0];
 
 const botStates = new Map<Slot, BotState>();
 for (const s of botSlots) botStates.set(s, makeBotState());
 
+function peerKey(addr: string, port: number): string {
+  return `${addr}:${port}`;
+}
+
 function slotFilled(s: Slot): boolean {
-  return sockets[s] !== null || botSlots.has(s);
+  return slotPeer[s] !== null || botSlots.has(s);
 }
 function bothFilled(): boolean {
   return slotFilled(0) && slotFilled(1);
@@ -69,23 +79,11 @@ function snapshot(): BallSnap[] {
   }));
 }
 
-function broadcast(msg: ServerMsg) {
-  const buf = encodeServerMsg(msg);
-  for (const ws of sockets) ws?.send(buf);
-  for (const ws of spectators) ws.send(buf);
-}
-
-function send(ws: ServerWebSocket<WSData>, msg: ServerMsg) {
-  ws.send(encodeServerMsg(msg));
-}
-
 function resetMatch() {
   balls[0] = makeBall(0);
   balls[1] = makeBall(1);
   winner = undefined;
   hitstopUntil = 0;
-  lastAckSeq[0] = 0;
-  lastAckSeq[1] = 0;
   for (const [, st] of botStates) resetBotState(st);
   status = bothFilled() ? "playing" : "waiting";
 }
@@ -121,22 +119,81 @@ function tick(dt: number) {
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let sock: any = null;
+
+function send(p: Peer, msg: ServerMsg) {
+  if (!sock) return;
+  sock.send(new Uint8Array(encodeServerMsg(msg)), p.port, p.addr);
+}
+
+function broadcast(msg: ServerMsg) {
+  if (!sock || peers.size === 0) return;
+  const buf = new Uint8Array(encodeServerMsg(msg));
+  for (const p of peers.values()) {
+    sock.send(buf, p.port, p.addr);
+  }
+}
+
+function reapStalePeers(now: number) {
+  let freed = false;
+  for (const [key, p] of peers) {
+    if (now - p.lastSeen > PEER_TIMEOUT_MS) {
+      peers.delete(key);
+      if (p.slot >= 0) {
+        slotPeer[p.slot] = null;
+        freed = true;
+        console.log(`reap: slot=${p.slot} ${p.addr}:${p.port}`);
+      } else {
+        console.log(`reap: spectator ${p.addr}:${p.port}`);
+      }
+    }
+  }
+  if (freed) {
+    status = "waiting";
+    resetMatch();
+  }
+}
+
+function assignSlot(p: Peer) {
+  if (p.slot >= 0) return;
+  if (!slotPeer[0] && !botSlots.has(0)) {
+    p.slot = 0;
+    slotPeer[0] = p;
+  } else if (!slotPeer[1] && !botSlots.has(1)) {
+    p.slot = 1;
+    slotPeer[1] = p;
+  } else {
+    p.slot = -1;
+  }
+  send(p, { t: "slot", n: p.slot });
+  console.log(`hello: slot=${p.slot} ${p.addr}:${p.port}`);
+  if (bothFilled() && status !== "playing") {
+    resetMatch();
+    status = "playing";
+  }
+}
+
 const dt = 1 / TICK_HZ;
 let snapAccum = 0;
 const snapInterval = 1 / SNAP_HZ;
 
 setInterval(() => {
-  if ((status === "playing" || status === "ended") && Date.now() >= hitstopUntil) {
+  const now = Date.now();
+  reapStalePeers(now);
+  if ((status === "playing" || status === "ended") && now >= hitstopUntil) {
     tick(dt);
     simTick++;
   }
   snapAccum += dt;
   if (snapAccum >= snapInterval) {
     snapAccum = 0;
+    const ack0 = slotPeer[0]?.lastAckSeq ?? 0;
+    const ack1 = slotPeer[1]?.lastAckSeq ?? 0;
     broadcast({
       t: "snap",
       tick: simTick,
-      ack: [lastAckSeq[0], lastAckSeq[1]],
+      ack: [ack0, ack1],
       balls: snapshot(),
       status,
       winner,
@@ -146,72 +203,50 @@ setInterval(() => {
 
 const hostname = "0.0.0.0";
 
-const server = Bun.serve<WSData>({
-  hostname,
+sock = await Bun.udpSocket({
   port: PORT,
-  fetch(req, srv) {
-    if (srv.upgrade(req, { data: { slot: -1 } })) return;
-    return new Response("term_phys_ball server", { status: 200 });
-  },
-  websocket: {
-    open(ws) {
-      let assigned: Slot | -1 = -1;
-      if (!sockets[0] && !botSlots.has(0)) {
-        sockets[0] = ws;
-        assigned = 0;
-      } else if (!sockets[1] && !botSlots.has(1)) {
-        sockets[1] = ws;
-        assigned = 1;
-      } else {
-        spectators.add(ws);
-      }
-      ws.data.slot = assigned;
-      send(ws, { t: "slot", n: assigned });
-      console.log(`open: slot=${assigned}`);
-      if (bothFilled() && status !== "playing") {
-        resetMatch();
-        status = "playing";
-      }
-    },
-    message(ws, raw) {
-      if (typeof raw === "string") return;
-      const u8 = raw as Uint8Array;
-      const ab = u8.buffer.slice(
-        u8.byteOffset,
-        u8.byteOffset + u8.byteLength,
+  hostname,
+  socket: {
+    data(_s: unknown, buf: Buffer, port: number, addr: string) {
+      const ab = buf.buffer.slice(
+        buf.byteOffset,
+        buf.byteOffset + buf.byteLength,
       ) as ArrayBuffer;
       const msg = decodeClientMsg(ab);
       if (!msg) return;
-      const rawSlot = ws.data.slot;
-      if (rawSlot < 0) return;
-      const slot = rawSlot as Slot;
-      const b = balls[slot]!;
-      if (status === "waiting") return;
-      if (status === "ended" && slot !== winner) return;
-      if (b.hp <= 0) return;
-      if (msg.t === "dir") {
-        applyDir(b, msg.name, msg.shift);
-        if (msg.seq > lastAckSeq[slot]) lastAckSeq[slot] = msg.seq;
-      } else if (msg.t === "space") {
-        applySpace(b);
-        if (msg.seq > lastAckSeq[slot]) lastAckSeq[slot] = msg.seq;
+      const key = peerKey(addr, port);
+      let p = peers.get(key);
+      const now = Date.now();
+      if (!p) {
+        p = { addr, port, slot: -1, lastSeen: now, lastAckSeq: 0 };
+        peers.set(key, p);
       }
-    },
-    close(ws) {
-      const slot = ws.data.slot;
-      if (slot >= 0) {
-        sockets[slot] = null;
-        console.log(`close: slot=${slot}`);
-        status = "waiting";
-        resetMatch();
-      } else {
-        spectators.delete(ws);
+      p.lastSeen = now;
+
+      if (msg.t === "hello") {
+        assignSlot(p);
+        return;
+      }
+      if (msg.t === "inputs") {
+        if (p.slot < 0) return;
+        if (status === "waiting") return;
+        if (status === "ended" && p.slot !== winner) return;
+        const slot = p.slot as Slot;
+        const b = balls[slot]!;
+        if (b.hp <= 0) return;
+        const sorted = msg.items.slice().sort((a, c) => a.seq - c.seq);
+        for (const it of sorted) {
+          if (it.seq <= p.lastAckSeq) continue;
+          if (it.kind === "dir") applyDir(b, it.name, it.shift);
+          else applySpace(b);
+          p.lastAckSeq = it.seq;
+        }
       }
     },
   },
 });
 
-console.log(`listening on ws://${hostname}:${server.port}`);
+console.log(`listening on udp://${hostname}:${sock.port}`);
 if (botSlots.size > 0) {
   console.log(`bots: ${[...botSlots].map((s) => `P${s + 1}`).join(", ")}`);
 }

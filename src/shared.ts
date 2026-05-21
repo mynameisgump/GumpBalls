@@ -18,8 +18,8 @@ export const BALL_MAX_Y = CEIL_Y - WALL_T / 2 - BALL_R;
 export const BALL_MIN_X = LEFT_X + WALL_T / 2 + BALL_R;
 export const BALL_MAX_X = RIGHT_X - WALL_T / 2 - BALL_R;
 
-export const TICK_HZ = 128;
-export const SNAP_HZ = 128;
+export const TICK_HZ = 60;
+export const SNAP_HZ = 60;
 export const MAX_HP = 100;
 export const DMG_THRESHOLD = 3;
 export const DMG_K = 2.5;
@@ -64,10 +64,15 @@ export type DirKey =
   | "z"
   | "c";
 
+export type InputItem =
+  | { kind: "dir"; seq: number; name: DirKey; shift: boolean }
+  | { kind: "space"; seq: number };
+
 export type ClientMsg =
   | { t: "hello" }
-  | { t: "dir"; seq: number; name: DirKey; shift: boolean }
-  | { t: "space"; seq: number };
+  | { t: "inputs"; items: InputItem[] };
+
+export const INPUT_KIND = { dir: 0, space: 1 } as const;
 
 export type Ball = {
   x: number;
@@ -246,9 +251,10 @@ export const MSG = {
   SNAP: 2,
   HIT: 4,
   HELLO: 0x10,
-  DIR: 0x11,
-  SPACE: 0x12,
+  INPUTS: 0x11,
 } as const;
+
+export const MAX_INPUTS_PER_BATCH = 32;
 
 export const DIR_LIST: DirKey[] = [
   "left",
@@ -400,20 +406,37 @@ export function encodeClientMsg(m: ClientMsg): ArrayBuffer {
       new DataView(buf).setUint8(0, MSG.HELLO);
       return buf;
     }
-    case "dir": {
-      const buf = new ArrayBuffer(7);
+    case "inputs": {
+      const count = Math.min(m.items.length, MAX_INPUTS_PER_BATCH);
+      let size = 2;
+      for (let i = 0; i < count; i++) {
+        size += m.items[i]!.kind === "dir" ? 7 : 5;
+      }
+      const buf = new ArrayBuffer(size);
       const v = new DataView(buf);
-      v.setUint8(0, MSG.DIR);
-      v.setUint8(1, DIR_INDEX[m.name]);
-      v.setUint8(2, m.shift ? 1 : 0);
-      v.setUint32(3, m.seq >>> 0, true);
-      return buf;
-    }
-    case "space": {
-      const buf = new ArrayBuffer(5);
-      const v = new DataView(buf);
-      v.setUint8(0, MSG.SPACE);
-      v.setUint32(1, m.seq >>> 0, true);
+      let o = 0;
+      v.setUint8(o, MSG.INPUTS);
+      o += 1;
+      v.setUint8(o, count);
+      o += 1;
+      for (let i = 0; i < count; i++) {
+        const it = m.items[i]!;
+        if (it.kind === "dir") {
+          v.setUint8(o, INPUT_KIND.dir);
+          o += 1;
+          v.setUint32(o, it.seq >>> 0, true);
+          o += 4;
+          v.setUint8(o, DIR_INDEX[it.name]);
+          o += 1;
+          v.setUint8(o, it.shift ? 1 : 0);
+          o += 1;
+        } else {
+          v.setUint8(o, INPUT_KIND.space);
+          o += 1;
+          v.setUint32(o, it.seq >>> 0, true);
+          o += 4;
+        }
+      }
       return buf;
     }
   }
@@ -426,19 +449,33 @@ export function decodeClientMsg(data: ArrayBuffer): ClientMsg | null {
   switch (t) {
     case MSG.HELLO:
       return { t: "hello" };
-    case MSG.DIR: {
-      if (data.byteLength < 7) return null;
-      const idx = v.getUint8(1);
-      const name = DIR_LIST[idx];
-      if (!name) return null;
-      const shift = v.getUint8(2) !== 0;
-      const seq = v.getUint32(3, true);
-      return { t: "dir", seq, name, shift };
-    }
-    case MSG.SPACE: {
-      if (data.byteLength < 5) return null;
-      const seq = v.getUint32(1, true);
-      return { t: "space", seq };
+    case MSG.INPUTS: {
+      if (data.byteLength < 2) return null;
+      const count = v.getUint8(1);
+      let o = 2;
+      const items: InputItem[] = [];
+      for (let i = 0; i < count; i++) {
+        if (data.byteLength < o + 5) return null;
+        const kind = v.getUint8(o);
+        o += 1;
+        const seq = v.getUint32(o, true);
+        o += 4;
+        if (kind === INPUT_KIND.dir) {
+          if (data.byteLength < o + 2) return null;
+          const idx = v.getUint8(o);
+          o += 1;
+          const shift = v.getUint8(o) !== 0;
+          o += 1;
+          const name = DIR_LIST[idx];
+          if (!name) return null;
+          items.push({ kind: "dir", seq, name, shift });
+        } else if (kind === INPUT_KIND.space) {
+          items.push({ kind: "space", seq });
+        } else {
+          return null;
+        }
+      }
+      return { t: "inputs", items };
     }
   }
   return null;
