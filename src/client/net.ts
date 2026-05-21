@@ -1,5 +1,9 @@
 import { Vector3 } from "three";
 import {
+  BALL_MAX_X,
+  BALL_MAX_Y,
+  BALL_MIN_X,
+  BALL_MIN_Y,
   PORT,
   TICK_HZ,
   applyDir,
@@ -57,11 +61,21 @@ export const netState: NetState = {
 };
 
 const FIXED_DT = 1 / TICK_HZ;
-const INTERP_DELAY_MS = 100;
+const TICK_MS = 1000 / TICK_HZ;
+const INTERP_DELAY_MS = 30;
 const SNAP_KEEP_MS = 500;
+const CLOCK_DECAY_PER_SEC = 0.05;
+
+let serverWallOffset = 0;
+let offsetInitialized = false;
 
 let localBall: Ball | null = null;
 let physAccum = 0;
+let displayErrX = 0;
+let displayErrY = 0;
+const DISPLAY_ERR_DECAY = 20;
+const DISPLAY_ERR_MAX = 0.25;
+const DISPLAY_ERR_SNAP = 1.0;
 
 type SnapEntry = { t: number; balls: BallSnap[] };
 const snapBuf: SnapEntry[] = [];
@@ -195,10 +209,20 @@ function doConnect() {
       netState.lastSnap = msg.balls;
       netState.serverStatus = msg.status;
       netState.winner = msg.winner;
-      const now = performance.now();
+      const wall = performance.now();
+      const serverMs = msg.tick * TICK_MS;
+      const sample = serverMs - wall;
+      if (!offsetInitialized || prev !== netState.serverStatus) {
+        serverWallOffset = sample;
+        offsetInitialized = true;
+      } else if (sample > serverWallOffset) {
+        serverWallOffset = sample;
+      } else {
+        serverWallOffset += (sample - serverWallOffset) * CLOCK_DECAY_PER_SEC;
+      }
       if (prev !== netState.serverStatus) snapBuf.length = 0;
-      snapBuf.push({ t: now, balls: msg.balls });
-      const cutoff = now - SNAP_KEEP_MS;
+      snapBuf.push({ t: serverMs, balls: msg.balls });
+      const cutoff = serverMs - SNAP_KEEP_MS;
       while (snapBuf.length > 2 && snapBuf[0].t < cutoff) snapBuf.shift();
       if (prev !== "ended" && netState.serverStatus === "ended") {
         netState.endedAt = Date.now();
@@ -221,7 +245,11 @@ function doConnect() {
         if (!localBall || prev !== netState.serverStatus) {
           localBall = snapToLocal(mySnap);
           physAccum = 0;
+          displayErrX = 0;
+          displayErrY = 0;
         } else {
+          const renderX = localBall.x + displayErrX;
+          const renderY = localBall.y + displayErrY;
           localBall.x = mySnap.x;
           localBall.y = mySnap.y;
           localBall.vx = mySnap.vx;
@@ -232,6 +260,19 @@ function doConnect() {
           localBall.cy = mySnap.cy;
           for (const inp of pendingInputs) applyPending(localBall, inp);
           physAccum = 0;
+          let ex = renderX - localBall.x;
+          let ey = renderY - localBall.y;
+          const mag = Math.hypot(ex, ey);
+          if (mag > DISPLAY_ERR_SNAP) {
+            ex = 0;
+            ey = 0;
+          } else if (mag > DISPLAY_ERR_MAX) {
+            const s = DISPLAY_ERR_MAX / mag;
+            ex *= s;
+            ey *= s;
+          }
+          displayErrX = ex;
+          displayErrY = ey;
         }
       }
     } else if (msg.t === "hit") {
@@ -277,13 +318,25 @@ export function updateServerScene(dt: number) {
     }
   }
 
-  const renderNow = performance.now();
+  if (displayErrX !== 0 || displayErrY !== 0) {
+    const decay = Math.exp(-dt * DISPLAY_ERR_DECAY);
+    displayErrX *= decay;
+    displayErrY *= decay;
+    if (Math.abs(displayErrX) < 1e-4) displayErrX = 0;
+    if (Math.abs(displayErrY) < 1e-4) displayErrY = 0;
+  }
+
+  const serverNow = performance.now() + serverWallOffset;
   for (let i = 0; i < 2; i++) {
     const useLocal = i === netState.mySlot && localBall !== null;
-    const interp = useLocal ? null : interpOpponent(i, renderNow);
+    const interp = useLocal ? null : interpOpponent(i, serverNow);
     const snap = interp ?? netState.lastSnap[i];
-    const sx = useLocal ? localBall!.x : snap.x;
-    const sy = useLocal ? localBall!.y : snap.y;
+    let sx = useLocal ? localBall!.x + displayErrX : snap.x;
+    let sy = useLocal ? localBall!.y + displayErrY : snap.y;
+    if (sx < BALL_MIN_X) sx = BALL_MIN_X;
+    else if (sx > BALL_MAX_X) sx = BALL_MAX_X;
+    if (sy < BALL_MIN_Y) sy = BALL_MIN_Y;
+    else if (sy > BALL_MAX_Y) sy = BALL_MAX_Y;
     const sCharging = useLocal ? localBall!.charging : snap.charging;
     const sCx = useLocal ? localBall!.cx : snap.cx;
     const sCy = useLocal ? localBall!.cy : snap.cy;
