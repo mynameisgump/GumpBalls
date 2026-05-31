@@ -14,6 +14,7 @@ import {
   ballMeshes,
   arrows,
   updateArrow,
+  spinBall,
   fx,
   FLASH_DECAY,
   PUNCH_DECAY,
@@ -133,6 +134,7 @@ export function createOfflineGame() {
       updateArrow(i, mesh.position, b.cx, b.cy, b.charging && mesh.visible);
       tickChargeSound(`off:${i}`, b.charging, b.cx, b.cy);
       tickWallSound(`off:${i}`, b.x, b.y, b.vx, b.vy);
+      spinBall(i, b.vx, b.vy, dt);
     }
 
   }

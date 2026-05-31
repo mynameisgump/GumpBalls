@@ -20,6 +20,7 @@ import {
   ballMats,
   ballMeshes,
   updateArrow,
+  spinBall,
   fx,
   P_COLORS,
   P_CHARGE,
@@ -214,6 +215,7 @@ export function createTitleScreen(font: Font) {
       mat.emissiveIntensity = 0;
 
       updateArrow(i, mesh.position, b.cx, b.cy, b.charging);
+      spinBall(i, b.vx, b.vy, dt);
     }
 
     // Title text bob/sway

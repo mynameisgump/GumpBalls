@@ -103,6 +103,22 @@ export function updateArrow(
   );
 }
 
+// Rolling: a ball moving in the screen plane rolls with angular speed v/r.
+// Horizontal motion → spin about Z, vertical motion → tumble about X. A faint
+// idle spin keeps them alive when at rest / charging.
+const SPIN_X = new Vector3(1, 0, 0);
+const SPIN_Y = new Vector3(0, 1, 0);
+const SPIN_Z = new Vector3(0, 0, 1);
+const IDLE_SPIN = 0.35;
+
+export function spinBall(i: number, vx: number, vy: number, dt: number) {
+  const mesh = ballMeshes[i];
+  const inv = dt / BALL_R;
+  mesh.rotateOnWorldAxis(SPIN_Z, -vx * inv);
+  mesh.rotateOnWorldAxis(SPIN_X, vy * inv);
+  mesh.rotateOnWorldAxis(SPIN_Y, IDLE_SPIN * dt);
+}
+
 export const fx = [
   { flash: 0, punch: 0 },
   { flash: 0, punch: 0 },

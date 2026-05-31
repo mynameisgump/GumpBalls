@@ -21,6 +21,7 @@ import {
   ballMeshes,
   arrows,
   updateArrow,
+  spinBall,
   fx,
   FLASH_DECAY,
   PUNCH_DECAY,
@@ -367,5 +368,6 @@ export function updateServerScene(dt: number) {
     // latency, raw snapshot for the opponent.
     const wb = useLocal ? localBall! : netState.lastSnap[i];
     if (mesh.visible) tickWallSound(`net:${i}`, wb.x, wb.y, wb.vx, wb.vy);
+    spinBall(i, wb.vx, wb.vy, dt);
   }
 }
