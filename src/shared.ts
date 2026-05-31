@@ -48,7 +48,7 @@ export type ServerMsg =
       status: "waiting" | "playing" | "ended";
       winner?: Slot;
     }
-  | { t: "hit"; attacker: Slot; victim: Slot; dmg: number };
+  | { t: "hit"; attacker: Slot; victim: Slot; dmg: number; closing: number };
 
 export type DirKey =
   | "left"
@@ -80,7 +80,12 @@ export type Ball = {
   cy: number;
 };
 
-export type HitEvent = { attacker: Slot; victim: Slot; dmg: number };
+export type HitEvent = {
+  attacker: Slot;
+  victim: Slot;
+  dmg: number;
+  closing: number;
+};
 
 export function makeBall(slot: Slot): Ball {
   return {
@@ -217,10 +222,10 @@ export function physicsStep(balls: Ball[], dt: number): HitEvent | null {
       c.vx += j * nx;
       c.vy += j * ny;
 
+      let attacker: Slot = speedA >= speedC ? 0 : 1;
+      let victim: Slot = attacker === 0 ? 1 : 0;
+      let dmg = 0;
       if (closing > DMG_THRESHOLD) {
-        let attacker: Slot | undefined;
-        let victim: Slot | undefined;
-        let dmg = 0;
         if (speedA > speedC) {
           dmg = (speedA - DMG_THRESHOLD) * DMG_K;
           c.hp = Math.max(0, c.hp - dmg);
@@ -232,10 +237,8 @@ export function physicsStep(balls: Ball[], dt: number): HitEvent | null {
           attacker = 1;
           victim = 0;
         }
-        if (attacker !== undefined && victim !== undefined && dmg > 0) {
-          return { attacker, victim, dmg };
-        }
       }
+      return { attacker, victim, dmg, closing };
     }
   }
   return null;
@@ -325,12 +328,13 @@ export function encodeServerMsg(m: ServerMsg): ArrayBuffer {
       return buf;
     }
     case "hit": {
-      const buf = new ArrayBuffer(1 + 1 + 1 + 4);
+      const buf = new ArrayBuffer(1 + 1 + 1 + 4 + 4);
       const v = new DataView(buf);
       v.setUint8(0, MSG.HIT);
       v.setUint8(1, m.attacker);
       v.setUint8(2, m.victim);
       v.setFloat32(3, m.dmg, true);
+      v.setFloat32(7, m.closing, true);
       return buf;
     }
   }
@@ -384,10 +388,12 @@ export function decodeServerMsg(data: ArrayBuffer): ServerMsg | null {
       return { t: "snap", tick, ack: [ack0, ack1], balls, status, winner };
     }
     case MSG.HIT: {
+      if (data.byteLength < 7) return null;
       const attacker = v.getUint8(1) as Slot;
       const victim = v.getUint8(2) as Slot;
       const dmg = v.getFloat32(3, true);
-      return { t: "hit", attacker, victim, dmg };
+      const closing = data.byteLength >= 11 ? v.getFloat32(7, true) : dmg;
+      return { t: "hit", attacker, victim, dmg, closing };
     }
   }
   return null;

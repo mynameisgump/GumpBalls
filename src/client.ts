@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { type KeyEvent } from "@opentui/core";
 import { renderer, scene, engine, fb } from "./client/scene";
+import "./client/audio";
 import { loadFont } from "./client/font";
 import { ballMeshes, arrows } from "./client/balls";
 import { updateParticles } from "./client/particles";

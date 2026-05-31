@@ -29,6 +29,7 @@ import {
   P_CHARGE,
 } from "./balls";
 import { burstBlood, clearBlood } from "./particles";
+import { playHitThud } from "./audio";
 function parseServerUrl(): string {
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
@@ -276,11 +277,14 @@ function doConnect() {
         }
       }
     } else if (msg.t === "hit") {
-      fx[msg.victim].flash = 1;
-      fx[msg.attacker].punch = Math.max(
-        fx[msg.attacker].punch,
-        Math.min(1, msg.dmg / 12),
-      );
+      playHitThud(msg.closing);
+      if (msg.dmg > 0) {
+        fx[msg.victim].flash = 1;
+        fx[msg.attacker].punch = Math.max(
+          fx[msg.attacker].punch,
+          Math.min(1, msg.dmg / 12),
+        );
+      }
     }
   };
 }
@@ -354,5 +358,4 @@ export function updateServerScene(dt: number) {
 
     updateArrow(i, mesh.position, sCx, sCy, sCharging && mesh.visible);
   }
-
 }

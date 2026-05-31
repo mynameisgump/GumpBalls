@@ -22,6 +22,7 @@ import {
   P_CHARGE,
 } from "./balls";
 import { burstBlood, clearBlood } from "./particles";
+import { playHitThud } from "./audio";
 const FIXED_DT = 1 / TICK_HZ;
 const RESET_MS = 5000;
 
@@ -85,12 +86,15 @@ export function createOfflineGame() {
         }
         const hit = physicsStep(balls, FIXED_DT);
         if (hit) {
-          fx[hit.victim].flash = 1;
-          fx[hit.attacker].punch = Math.max(
-            fx[hit.attacker].punch,
-            Math.min(1, hit.dmg / 12),
-          );
-          hitstopUntil = Date.now() + Math.min(20 + hit.dmg * 4, 120);
+          playHitThud(hit.closing);
+          if (hit.dmg > 0) {
+            fx[hit.victim].flash = 1;
+            fx[hit.attacker].punch = Math.max(
+              fx[hit.attacker].punch,
+              Math.min(1, hit.dmg / 12),
+            );
+            hitstopUntil = Date.now() + Math.min(20 + hit.dmg * 4, 120);
+          }
         }
         if (status === "playing") {
           const dead0 = balls[0]!.hp <= 0;

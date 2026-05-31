@@ -99,7 +99,9 @@ function tick(dt: number) {
   const hit = physicsStep(balls, dt);
   if (hit) {
     broadcast({ t: "hit", ...hit });
-    hitstopUntil = Date.now() + Math.min(20 + hit.dmg * 4, 120);
+    if (hit.dmg > 0) {
+      hitstopUntil = Date.now() + Math.min(20 + hit.dmg * 4, 120);
+    }
   }
   if (status === "playing") {
     const dead0 = balls[0].hp <= 0;

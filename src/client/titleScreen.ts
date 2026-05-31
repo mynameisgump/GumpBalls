@@ -1,6 +1,11 @@
 import {
   Group,
+  Mesh,
   MeshStandardMaterial,
+  BoxGeometry,
+  ConeGeometry,
+  TorusGeometry,
+  CylinderGeometry,
 } from "three";
 import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
 import {
@@ -20,6 +25,7 @@ import {
   P_CHARGE,
 } from "./balls";
 import { makeSpacedText } from "./text3d";
+import { playHitThud, toggleMute, isMuted } from "./audio";
 
 export type MenuChoice = "single" | "multi" | "quit";
 
@@ -100,6 +106,60 @@ export function createTitleScreen(font: Font) {
   let titleBalls: Ball[] = [makeBall(0), makeBall(1)];
   const titleBots = [makeBotState(), makeBotState()];
 
+  // Mute toggle: 3D speaker icon, press [M]
+  const iconMat = new MeshStandardMaterial({
+    color: 0x33ff66,
+    emissive: 0x114422,
+    emissiveIntensity: 0.6,
+    metalness: 0.3,
+    roughness: 0.5,
+  });
+  const slashMat = new MeshStandardMaterial({
+    color: 0xff3344,
+    emissive: 0x551111,
+    emissiveIntensity: 0.9,
+    metalness: 0.2,
+    roughness: 0.5,
+  });
+  const muteGroup = new Group();
+  const speakerBody = new Mesh(new BoxGeometry(0.22, 0.34, 0.22), iconMat);
+  speakerBody.position.x = -0.16;
+  const speakerHorn = new Mesh(new ConeGeometry(0.34, 0.5, 24), iconMat);
+  speakerHorn.rotation.z = Math.PI / 2; // flare opens toward +x
+  speakerHorn.position.x = 0.05;
+  muteGroup.add(speakerBody, speakerHorn);
+  const waves = [0.2, 0.34].map((r) => {
+    const w = new Mesh(new TorusGeometry(r, 0.03, 8, 20, Math.PI * 0.8), iconMat);
+    w.rotation.z = -Math.PI * 0.4; // arc centered on +x → ")" facing right
+    w.position.x = 0.42;
+    muteGroup.add(w);
+    return w;
+  });
+  const slash = new Mesh(new CylinderGeometry(0.04, 0.04, 1.0, 10), slashMat);
+  slash.rotation.z = Math.PI / 4;
+  slash.visible = false;
+  muteGroup.add(slash);
+  muteGroup.position.set(-4.7, -2.7, 3.5);
+  muteGroup.scale.setScalar(0.95);
+  scene.add(muteGroup);
+
+  const hintMat = new MeshStandardMaterial({
+    color: 0x888888,
+    emissive: 0x222222,
+    emissiveIntensity: 0.4,
+    metalness: 0.2,
+    roughness: 0.6,
+  });
+  const muteHint = makeSpacedText(
+    "[M]",
+    { font, size: 0.3, depth: 0.08, curveSegments: 4, bevelEnabled: false },
+    hintMat,
+    0.08,
+    0.5,
+  );
+  muteHint.group.position.set(-4.7, -3.35, 3.5);
+  scene.add(muteHint.group);
+
   let selectedIdx = 0;
   let active = true;
   let t = 0;
@@ -113,6 +173,8 @@ export function createTitleScreen(font: Font) {
     active = true;
     titleGroup.visible = true;
     for (const e of menuEntries) e.group.visible = true;
+    muteGroup.visible = true;
+    muteHint.group.visible = true;
     resetDemo();
   }
 
@@ -120,6 +182,8 @@ export function createTitleScreen(font: Font) {
     active = false;
     titleGroup.visible = false;
     for (const e of menuEntries) e.group.visible = false;
+    muteGroup.visible = false;
+    muteHint.group.visible = false;
   }
 
   function update(dt: number) {
@@ -129,7 +193,8 @@ export function createTitleScreen(font: Font) {
     // Demo sim
     botTick(titleBalls[0], titleBalls[1], titleBots[0], dt);
     botTick(titleBalls[1], titleBalls[0], titleBots[1], dt);
-    physicsStep(titleBalls, dt);
+    const hit = physicsStep(titleBalls, dt);
+    if (hit) playHitThud(hit.closing);
     if (titleBalls[0].hp <= 0 || titleBalls[1].hp <= 0) resetDemo();
 
     // Drive ball meshes from demo sim
@@ -174,10 +239,23 @@ export function createTitleScreen(font: Font) {
         group.position.y = baseY;
       }
     }
+
+    // Mute icon state + idle wiggle
+    const muted = isMuted();
+    iconMat.color.setHex(muted ? 0x666666 : 0x33ff66);
+    iconMat.emissive.setHex(muted ? 0x111111 : 0x114422);
+    slash.visible = muted;
+    for (const w of waves) w.visible = !muted;
+    muteGroup.rotation.y = Math.sin(t * 1.2) * 0.3;
+    muteGroup.position.y = -2.7 + Math.sin(t * 2.2) * 0.05;
   }
 
   function onKey(name: string | undefined): MenuChoice | null {
     if (!active) return null;
+    if (name === "m") {
+      toggleMute();
+      return null;
+    }
     if (name === "up" || name === "w") {
       selectedIdx =
         (selectedIdx + MENU_ITEMS.length - 1) % MENU_ITEMS.length;
