@@ -41,7 +41,9 @@ renderer.root.add(fb);
 export const engine = new ThreeCliRenderer(renderer, {
   width: W,
   height: H,
-  backgroundColor: RGBA.fromValues(0, 0, 0, 0),
+  // Opaque clear: repaints every cell each frame. Transparent (alpha 0) left
+  // stale pixels where moving/scaling geometry vacated cells (menu ghosting).
+  backgroundColor: RGBA.fromValues(0, 0, 0, 1),
 });
 await engine.init();
 
