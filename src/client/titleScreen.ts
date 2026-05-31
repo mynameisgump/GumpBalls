@@ -25,7 +25,7 @@ import {
   P_CHARGE,
 } from "./balls";
 import { makeSpacedText } from "./text3d";
-import { playHitThud, toggleMute, isMuted } from "./audio";
+import { playHitThud, playMenuTick, toggleMute, isMuted } from "./audio";
 
 export type MenuChoice = "single" | "multi" | "quit";
 
@@ -221,22 +221,20 @@ export function createTitleScreen(font: Font) {
     titleGroup.position.y = TITLE_BASE_Y + Math.sin(t * 1.8) * 0.2;
     titleGroup.rotation.z = Math.sin(t * 0.5) * 0.06;
 
-    // Menu highlight + bob
+    // Menu highlight — color/emissive only. Geometry stays put: scaling the
+    // selected entry caused the cached glyph sprites to leave a stale render
+    // of the leftmost letter (the red-first-letter glitch).
     for (let i = 0; i < menuEntries.length; i++) {
-      const { group, mat, baseY } = menuEntries[i];
+      const { mat } = menuEntries[i];
       const selected = i === selectedIdx;
       if (selected) {
         mat.color.setHex(0xff3355);
         mat.emissive.setHex(0xff3355);
-        mat.emissiveIntensity = 1.4;
-        group.scale.setScalar(1.15 + Math.sin(t * 6) * 0.04);
-        group.position.y = baseY + Math.sin(t * 4) * 0.08;
+        mat.emissiveIntensity = 1.0 + Math.sin(t * 6) * 0.4;
       } else {
         mat.color.setHex(0xcccccc);
         mat.emissive.setHex(0x222222);
         mat.emissiveIntensity = 0.4;
-        group.scale.setScalar(1);
-        group.position.y = baseY;
       }
     }
 
@@ -259,10 +257,12 @@ export function createTitleScreen(font: Font) {
     if (name === "up" || name === "w") {
       selectedIdx =
         (selectedIdx + MENU_ITEMS.length - 1) % MENU_ITEMS.length;
+      playMenuTick();
       return null;
     }
     if (name === "down" || name === "s") {
       selectedIdx = (selectedIdx + 1) % MENU_ITEMS.length;
+      playMenuTick();
       return null;
     }
     if (name === "return" || name === "space") {

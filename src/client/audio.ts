@@ -5,12 +5,21 @@ const MUSIC_PATH = new URL(
   "../../public/ShittyMusic.wav",
   import.meta.url,
 ).pathname;
+const MENU_TICK_PATH = new URL(
+  "../../public/MenuTick.wav",
+  import.meta.url,
+).pathname;
 
 const audio = setupAudio({ autoStart: true });
 
 let thud: AudioSound | null = null;
 audio.loadSoundFile(THUD_PATH).then((s) => {
   thud = s;
+});
+
+let menuTick: AudioSound | null = null;
+audio.loadSoundFile(MENU_TICK_PATH).then((s) => {
+  menuTick = s;
 });
 
 let musicVoice: AudioVoice | null = null;
@@ -37,4 +46,9 @@ export function playHitThud(closing: number) {
   if (muted || thud === null || closing < MIN_CLOSING) return;
   const volume = Math.min(1, 0.15 + closing * 0.08);
   audio.play(thud, { volume });
+}
+
+export function playMenuTick() {
+  if (muted || menuTick === null) return;
+  audio.play(menuTick, { volume: 0.6 });
 }

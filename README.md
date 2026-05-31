@@ -70,3 +70,8 @@ Cheapest first pick: 2-3 stat-twist classes. Parry + Bomber best ability additio
 - Combat changes:
   - Max Velocity
   - Tap limiter to avoid press and hold?
+
+- Have hoved menu option float + grow and shrink a little
+- Dynamic camera
+- Add Arrow Tick Sound
+-
