@@ -30,6 +30,7 @@ import {
 } from "./balls";
 import { burstBlood, clearBlood } from "./particles";
 import { playHitThud, tickChargeSound, playDeath } from "./audio";
+import { addShake } from "./scene";
 function parseServerUrl(): string {
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
@@ -169,6 +170,7 @@ function triggerExplosion() {
   const lp = netState.lastSnap[loser];
   burstBlood(lp.x, lp.y);
   playDeath();
+  addShake(1);
   ballMeshes[loser].visible = false;
   arrows[loser].visible = false;
 }
@@ -285,6 +287,7 @@ function doConnect() {
           fx[msg.attacker].punch,
           Math.min(1, msg.dmg / 12),
         );
+        addShake(Math.min(0.6, 0.12 + msg.dmg * 0.03));
       }
     }
   };

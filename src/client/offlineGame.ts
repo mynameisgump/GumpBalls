@@ -22,6 +22,7 @@ import {
   P_CHARGE,
 } from "./balls";
 import { burstBlood, clearBlood } from "./particles";
+import { addShake } from "./scene";
 import { playHitThud, tickChargeSound, playDeath } from "./audio";
 const FIXED_DT = 1 / TICK_HZ;
 const RESET_MS = 5000;
@@ -94,6 +95,7 @@ export function createOfflineGame() {
               Math.min(1, hit.dmg / 12),
             );
             hitstopUntil = Date.now() + Math.min(20 + hit.dmg * 4, 120);
+            addShake(Math.min(0.6, 0.12 + hit.dmg * 0.03));
           }
         }
         if (status === "playing") {
@@ -106,6 +108,7 @@ export function createOfflineGame() {
             const loser: Slot = winner === 0 ? 1 : 0;
             burstBlood(balls[loser]!.x, balls[loser]!.y);
             playDeath();
+            addShake(1);
             ballMeshes[loser].visible = false;
             arrows[loser].visible = false;
           }

@@ -9,6 +9,7 @@ import {
   AmbientLight,
   DirectionalLight,
   RepeatWrapping,
+  Vector3,
 } from "three";
 import {
   CEIL_Y,
@@ -47,10 +48,35 @@ await engine.init();
 
 export const scene = new Scene();
 export const camera = new PerspectiveCamera(30, engine.aspectRatio, 0.1, 100);
-camera.position.set(0, 1, 30);
+const CAM_BASE = new Vector3(0, 1, 30);
+camera.position.copy(CAM_BASE);
 camera.lookAt(0, 1, 0);
 engine.setActiveCamera(camera);
 scene.add(camera);
+
+// Screen shake: trauma builds on hits/death, decays each frame. Offset scales
+// with trauma^2 so small hits barely nudge while big ones jolt.
+let trauma = 0;
+const SHAKE_MAX = 0.9;
+const SHAKE_DECAY = 2.6; // trauma units per second
+
+export function addShake(amount: number) {
+  trauma = Math.min(1, trauma + amount);
+}
+
+export function updateShake(dt: number) {
+  if (trauma <= 0) {
+    camera.position.copy(CAM_BASE);
+    return;
+  }
+  const s = trauma * trauma * SHAKE_MAX;
+  camera.position.set(
+    CAM_BASE.x + (Math.random() * 2 - 1) * s,
+    CAM_BASE.y + (Math.random() * 2 - 1) * s,
+    CAM_BASE.z,
+  );
+  trauma = Math.max(0, trauma - SHAKE_DECAY * dt);
+}
 
 scene.add(new AmbientLight(0xffffff, 1.0));
 const sun = new DirectionalLight(0xffffff, 2.5);

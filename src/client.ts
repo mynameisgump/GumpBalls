@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { type KeyEvent } from "@opentui/core";
-import { renderer, scene, engine, fb } from "./client/scene";
+import { renderer, scene, engine, fb, updateShake } from "./client/scene";
 import "./client/audio";
 import { loadFont } from "./client/font";
 import { ballMeshes, arrows } from "./client/balls";
@@ -132,6 +132,7 @@ function syncWinScreen(
 
 renderer.setFrameCallback(async (deltaMs: number) => {
   const dt = deltaMs / 1000;
+  updateShake(dt);
   if (screen === "title") {
     title.update(dt);
   } else if (screen === "offline") {
