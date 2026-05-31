@@ -29,7 +29,7 @@ import {
   P_CHARGE,
 } from "./balls";
 import { burstBlood, clearBlood } from "./particles";
-import { playHitThud } from "./audio";
+import { playHitThud, tickChargeSound } from "./audio";
 function parseServerUrl(): string {
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
@@ -357,5 +357,6 @@ export function updateServerScene(dt: number) {
     mesh.scale.setScalar(1 + f.punch * PUNCH_MAX_SCALE);
 
     updateArrow(i, mesh.position, sCx, sCy, sCharging && mesh.visible);
+    tickChargeSound(`net:${i}`, sCharging, sCx, sCy);
   }
 }

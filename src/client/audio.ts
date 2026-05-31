@@ -9,6 +9,10 @@ const MENU_TICK_PATH = new URL(
   "../../public/MenuTick.wav",
   import.meta.url,
 ).pathname;
+const ARROW_PRESS_PATH = new URL(
+  "../../public/ArrowPress.wav",
+  import.meta.url,
+).pathname;
 
 const audio = setupAudio({ autoStart: true });
 
@@ -20,6 +24,11 @@ audio.loadSoundFile(THUD_PATH).then((s) => {
 let menuTick: AudioSound | null = null;
 audio.loadSoundFile(MENU_TICK_PATH).then((s) => {
   menuTick = s;
+});
+
+let arrowPress: AudioSound | null = null;
+audio.loadSoundFile(ARROW_PRESS_PATH).then((s) => {
+  arrowPress = s;
 });
 
 let musicVoice: AudioVoice | null = null;
@@ -51,4 +60,33 @@ export function playHitThud(closing: number) {
 export function playMenuTick() {
   if (muted || menuTick === null) return;
   audio.play(menuTick, { volume: 0.6 });
+}
+
+export function playArrowPress() {
+  if (muted || arrowPress === null) return;
+  audio.play(arrowPress, { volume: 0.7 });
+}
+
+// Per-ball charge tracking: fire ArrowPress whenever a ball's charge vector
+// changes while charging — works for self and enemy alike (local input,
+// bot input, or server snapshots all just move cx/cy).
+type ChargeState = { cx: number; cy: number; charging: boolean };
+const chargeStates = new Map<string, ChargeState>();
+
+export function tickChargeSound(
+  key: string,
+  charging: boolean,
+  cx: number,
+  cy: number,
+) {
+  const prev = chargeStates.get(key);
+  if (
+    prev &&
+    prev.charging &&
+    charging &&
+    (cx !== prev.cx || cy !== prev.cy)
+  ) {
+    playArrowPress();
+  }
+  chargeStates.set(key, { cx, cy, charging });
 }

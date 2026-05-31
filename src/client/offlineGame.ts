@@ -22,7 +22,7 @@ import {
   P_CHARGE,
 } from "./balls";
 import { burstBlood, clearBlood } from "./particles";
-import { playHitThud } from "./audio";
+import { playHitThud, tickChargeSound } from "./audio";
 const FIXED_DT = 1 / TICK_HZ;
 const RESET_MS = 5000;
 
@@ -127,6 +127,7 @@ export function createOfflineGame() {
       mesh.scale.setScalar(1 + f.punch * PUNCH_MAX_SCALE);
 
       updateArrow(i, mesh.position, b.cx, b.cy, b.charging && mesh.visible);
+      tickChargeSound(`off:${i}`, b.charging, b.cx, b.cy);
     }
 
   }
