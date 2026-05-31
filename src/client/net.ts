@@ -29,7 +29,7 @@ import {
   P_CHARGE,
 } from "./balls";
 import { burstBlood, clearBlood } from "./particles";
-import { playHitThud, tickChargeSound, playDeath } from "./audio";
+import { playHitThud, tickChargeSound, playDeath, tickWallSound } from "./audio";
 import { addShake } from "./scene";
 function parseServerUrl(): string {
   const argv = process.argv.slice(2);
@@ -362,5 +362,10 @@ export function updateServerScene(dt: number) {
 
     updateArrow(i, mesh.position, sCx, sCy, sCharging && mesh.visible);
     tickChargeSound(`net:${i}`, sCharging, sCx, sCy);
+
+    // Wall SFX from physics values (raw, unclamped): predicted self for zero
+    // latency, raw snapshot for the opponent.
+    const wb = useLocal ? localBall! : netState.lastSnap[i];
+    if (mesh.visible) tickWallSound(`net:${i}`, wb.x, wb.y, wb.vx, wb.vy);
   }
 }

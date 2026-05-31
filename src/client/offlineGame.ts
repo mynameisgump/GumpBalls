@@ -23,7 +23,7 @@ import {
 } from "./balls";
 import { burstBlood, clearBlood } from "./particles";
 import { addShake } from "./scene";
-import { playHitThud, tickChargeSound, playDeath } from "./audio";
+import { playHitThud, tickChargeSound, playDeath, tickWallSound } from "./audio";
 const FIXED_DT = 1 / TICK_HZ;
 const RESET_MS = 5000;
 
@@ -132,6 +132,7 @@ export function createOfflineGame() {
 
       updateArrow(i, mesh.position, b.cx, b.cy, b.charging && mesh.visible);
       tickChargeSound(`off:${i}`, b.charging, b.cx, b.cy);
+      tickWallSound(`off:${i}`, b.x, b.y, b.vx, b.vy);
     }
 
   }

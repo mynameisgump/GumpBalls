@@ -1,4 +1,10 @@
 import { setupAudio, type AudioSound, type AudioVoice } from "@opentui/core";
+import {
+  BALL_MIN_X,
+  BALL_MAX_X,
+  BALL_MIN_Y,
+  BALL_MAX_Y,
+} from "../shared";
 
 const THUD_PATH = new URL("../../public/Thud.wav", import.meta.url).pathname;
 const MUSIC_PATH = new URL(
@@ -14,6 +20,10 @@ const ARROW_PRESS_PATH = new URL(
   import.meta.url,
 ).pathname;
 const DEATH_PATH = new URL("../../public/Dead.wav", import.meta.url).pathname;
+const WALL_HIT_PATH = new URL(
+  "../../public/WallHit.wav",
+  import.meta.url,
+).pathname;
 
 const audio = setupAudio({ autoStart: true });
 
@@ -35,6 +45,11 @@ audio.loadSoundFile(ARROW_PRESS_PATH).then((s) => {
 let death: AudioSound | null = null;
 audio.loadSoundFile(DEATH_PATH).then((s) => {
   death = s;
+});
+
+let wallHit: AudioSound | null = null;
+audio.loadSoundFile(WALL_HIT_PATH).then((s) => {
+  wallHit = s;
 });
 
 let musicVoice: AudioVoice | null = null;
@@ -76,6 +91,52 @@ export function playArrowPress() {
 export function playDeath() {
   if (muted || death === null) return;
   audio.play(death, { volume: 1 });
+}
+
+function playWallHit(impact: number) {
+  if (muted || wallHit === null) return;
+  audio.play(wallHit, { volume: Math.min(1, 0.2 + impact * 0.06) });
+}
+
+// Per-ball wall detection: a bounce clamps the ball to the boundary and flips
+// the velocity component in the same physics step, so we catch it by a
+// sign reversal while sitting on a wall. Speed floor skips resting/settling.
+const WALL_EPS = 0.05;
+const WALL_MIN_SPEED = 2.5;
+const WALL_COOLDOWN = 80;
+
+type WallState = { vx: number; vy: number; lastPlay: number };
+const wallStates = new Map<string, WallState>();
+
+export function tickWallSound(
+  key: string,
+  x: number,
+  y: number,
+  vx: number,
+  vy: number,
+) {
+  const prev = wallStates.get(key);
+  if (prev) {
+    let impact = 0;
+    if (x <= BALL_MIN_X + WALL_EPS && prev.vx < 0)
+      impact = Math.max(impact, -prev.vx);
+    else if (x >= BALL_MAX_X - WALL_EPS && prev.vx > 0)
+      impact = Math.max(impact, prev.vx);
+    if (y <= BALL_MIN_Y + WALL_EPS && prev.vy < 0)
+      impact = Math.max(impact, -prev.vy);
+    else if (y >= BALL_MAX_Y - WALL_EPS && prev.vy > 0)
+      impact = Math.max(impact, prev.vy);
+
+    const now = performance.now();
+    if (impact > WALL_MIN_SPEED && now - prev.lastPlay > WALL_COOLDOWN) {
+      playWallHit(impact);
+      prev.lastPlay = now;
+    }
+    prev.vx = vx;
+    prev.vy = vy;
+  } else {
+    wallStates.set(key, { vx, vy, lastPlay: 0 });
+  }
 }
 
 // Per-ball charge tracking: fire ArrowPress whenever a ball's charge vector
