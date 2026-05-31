@@ -48,9 +48,9 @@ await engine.init();
 
 export const scene = new Scene();
 export const camera = new PerspectiveCamera(30, engine.aspectRatio, 0.1, 100);
-const CAM_BASE = new Vector3(0, 1, 30);
+const CAM_BASE = new Vector3(0, 0.75, 25);
 camera.position.copy(CAM_BASE);
-camera.lookAt(0, 1, 0);
+camera.lookAt(0, 0.75, 0);
 engine.setActiveCamera(camera);
 scene.add(camera);
 
