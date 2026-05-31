@@ -66,6 +66,43 @@ export const arrows = [0, 1].map((i) => {
   return a;
 });
 
+const tmpDir = new Vector3();
+export function updateArrow(
+  i: number,
+  pos: Vector3,
+  cx: number,
+  cy: number,
+  visible: boolean,
+) {
+  const a = arrows[i];
+  const len = Math.hypot(cx, cy);
+  if (!visible || len < 1e-3) {
+    a.visible = false;
+    return;
+  }
+  a.visible = true;
+  const raw = Math.min(len / 28, 1);
+  const ramp = Math.max(0, (raw - 0.65) / 0.35);
+  const ratio = ramp * ramp;
+  const t = performance.now() * 0.001;
+  const shakeAmp = ratio * 0.025;
+  const freq = 45 + ratio * 20;
+  const sx = (Math.sin(t * freq) + Math.sin(t * freq * 2.3) * 0.5) * shakeAmp;
+  const sy = (Math.cos(t * freq * 1.37) + Math.cos(t * freq * 2.7) * 0.5) * shakeAmp;
+  a.position.set(pos.x + sx, pos.y + sy, pos.z);
+  const wobble = ratio * 0.015;
+  const baseAng = Math.atan2(cy, cx);
+  const ang = baseAng + Math.sin(t * freq * 1.1) * wobble;
+  tmpDir.set(Math.cos(ang), Math.sin(ang), 0);
+  a.setDirection(tmpDir);
+  const visLen = Math.min(len * 0.18, 5);
+  a.setLength(
+    visLen,
+    Math.min(0.5, visLen * 0.25),
+    Math.min(0.3, visLen * 0.18),
+  );
+}
+
 export const fx = [
   { flash: 0, punch: 0 },
   { flash: 0, punch: 0 },

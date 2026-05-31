@@ -1,7 +1,6 @@
 import {
   Group,
   MeshStandardMaterial,
-  Vector3,
 } from "three";
 import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
 import {
@@ -15,7 +14,7 @@ import { scene } from "./scene";
 import {
   ballMats,
   ballMeshes,
-  arrows,
+  updateArrow,
   fx,
   P_COLORS,
   P_CHARGE,
@@ -149,21 +148,7 @@ export function createTitleScreen(font: Font) {
       mat.color.setHex(base);
       mat.emissiveIntensity = 0;
 
-      const a = arrows[i];
-      const len = Math.hypot(b.cx, b.cy);
-      if (b.charging && len > 1e-3) {
-        a.visible = true;
-        a.position.copy(mesh.position);
-        a.setDirection(new Vector3(b.cx, b.cy, 0).normalize());
-        const visLen = Math.min(len * 0.18, 5);
-        a.setLength(
-          visLen,
-          Math.min(0.5, visLen * 0.25),
-          Math.min(0.3, visLen * 0.18),
-        );
-      } else {
-        a.visible = false;
-      }
+      updateArrow(i, mesh.position, b.cx, b.cy, b.charging);
     }
 
     // Title text bob/sway

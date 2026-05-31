@@ -1,4 +1,3 @@
-import { Vector3 } from "three";
 import {
   BALL_MAX_X,
   BALL_MAX_Y,
@@ -21,6 +20,7 @@ import {
   ballMats,
   ballMeshes,
   arrows,
+  updateArrow,
   fx,
   FLASH_DECAY,
   PUNCH_DECAY,
@@ -352,21 +352,7 @@ export function updateServerScene(dt: number) {
     mat.emissiveIntensity = f.flash * 3;
     mesh.scale.setScalar(1 + f.punch * PUNCH_MAX_SCALE);
 
-    const a = arrows[i];
-    const len = Math.hypot(sCx, sCy);
-    if (sCharging && len > 1e-3 && mesh.visible) {
-      a.visible = true;
-      a.position.copy(mesh.position);
-      a.setDirection(new Vector3(sCx, sCy, 0).normalize());
-      const visLen = Math.min(len * 0.18, 5);
-      a.setLength(
-        visLen,
-        Math.min(0.5, visLen * 0.25),
-        Math.min(0.3, visLen * 0.18),
-      );
-    } else {
-      a.visible = false;
-    }
+    updateArrow(i, mesh.position, sCx, sCy, sCharging && mesh.visible);
   }
 
 }

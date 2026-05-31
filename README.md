@@ -65,6 +65,7 @@ Cheapest first pick: 2-3 stat-twist classes. Parry + Bomber best ability additio
 - Make Text Shake on collision, maybe flash a color
 - Player ball color select
   - Texture select too
+  -
 
 - Combat changes:
   - Max Velocity
