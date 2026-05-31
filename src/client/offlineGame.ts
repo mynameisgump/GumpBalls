@@ -22,7 +22,7 @@ import {
   P_CHARGE,
 } from "./balls";
 import { burstBlood, clearBlood } from "./particles";
-import { playHitThud, tickChargeSound } from "./audio";
+import { playHitThud, tickChargeSound, playDeath } from "./audio";
 const FIXED_DT = 1 / TICK_HZ;
 const RESET_MS = 5000;
 
@@ -105,6 +105,7 @@ export function createOfflineGame() {
             endedAt = Date.now();
             const loser: Slot = winner === 0 ? 1 : 0;
             burstBlood(balls[loser]!.x, balls[loser]!.y);
+            playDeath();
             ballMeshes[loser].visible = false;
             arrows[loser].visible = false;
           }

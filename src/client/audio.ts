@@ -13,6 +13,7 @@ const ARROW_PRESS_PATH = new URL(
   "../../public/ArrowPress.wav",
   import.meta.url,
 ).pathname;
+const DEATH_PATH = new URL("../../public/Dead.wav", import.meta.url).pathname;
 
 const audio = setupAudio({ autoStart: true });
 
@@ -29,6 +30,11 @@ audio.loadSoundFile(MENU_TICK_PATH).then((s) => {
 let arrowPress: AudioSound | null = null;
 audio.loadSoundFile(ARROW_PRESS_PATH).then((s) => {
   arrowPress = s;
+});
+
+let death: AudioSound | null = null;
+audio.loadSoundFile(DEATH_PATH).then((s) => {
+  death = s;
 });
 
 let musicVoice: AudioVoice | null = null;
@@ -65,6 +71,11 @@ export function playMenuTick() {
 export function playArrowPress() {
   if (muted || arrowPress === null) return;
   audio.play(arrowPress, { volume: 0.7 });
+}
+
+export function playDeath() {
+  if (muted || death === null) return;
+  audio.play(death, { volume: 1 });
 }
 
 // Per-ball charge tracking: fire ArrowPress whenever a ball's charge vector

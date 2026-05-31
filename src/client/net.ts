@@ -29,7 +29,7 @@ import {
   P_CHARGE,
 } from "./balls";
 import { burstBlood, clearBlood } from "./particles";
-import { playHitThud, tickChargeSound } from "./audio";
+import { playHitThud, tickChargeSound, playDeath } from "./audio";
 function parseServerUrl(): string {
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
@@ -168,6 +168,7 @@ function triggerExplosion() {
   const loser: Slot = netState.winner === 0 ? 1 : 0;
   const lp = netState.lastSnap[loser];
   burstBlood(lp.x, lp.y);
+  playDeath();
   ballMeshes[loser].visible = false;
   arrows[loser].visible = false;
 }
