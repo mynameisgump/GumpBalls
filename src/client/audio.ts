@@ -7,8 +7,16 @@ import {
 } from "../shared";
 
 const THUD_PATH = new URL("../../public/Thud.wav", import.meta.url).pathname;
-const MUSIC_PATH = new URL(
-  "../../public/ShittyMusic.wav",
+const MENU_MUSIC_PATH = new URL(
+  "../../public/NewMenu.wav",
+  import.meta.url,
+).pathname;
+const BATTLE_MUSIC_PATH = new URL(
+  "../../public/BattleTrack.wav",
+  import.meta.url,
+).pathname;
+const DEATH_MUSIC_PATH = new URL(
+  "../../public/DeathTrack.wav",
   import.meta.url,
 ).pathname;
 const MENU_TICK_PATH = new URL(
@@ -70,9 +78,49 @@ audio.loadSoundFile(COUNTDOWN_GO_PATH).then((s) => {
   countdownGo = s;
 });
 
+// Music tracks. Exactly one (or none) loops at a time; switchMusic() crossfades
+// by hard-stopping the old voice and starting the new looped track.
+export type MusicTrack = "menu" | "battle" | "death" | "none";
+const MUSIC_VOL: Record<Exclude<MusicTrack, "none">, number> = {
+  menu: 0.8,
+  battle: 0.8,
+  death: 0.85,
+};
+const musicSounds: Record<Exclude<MusicTrack, "none">, AudioSound | null> = {
+  menu: null,
+  battle: null,
+  death: null,
+};
 let musicVoice: AudioVoice | null = null;
-audio.loadSoundFile(MUSIC_PATH).then((s) => {
-  if (s !== null) musicVoice = audio.play(s, { volume: 0.8, loop: true });
+let currentTrack: MusicTrack = "menu";
+
+function startTrack(track: Exclude<MusicTrack, "none">) {
+  const s = musicSounds[track];
+  if (s === null) return; // not loaded yet; load handler will pick it up
+  musicVoice = audio.play(s, { volume: MUSIC_VOL[track], loop: true });
+}
+
+export function switchMusic(track: MusicTrack) {
+  if (track === currentTrack && (track === "none" || musicVoice !== null)) return;
+  currentTrack = track;
+  if (musicVoice !== null) {
+    audio.stopVoice(musicVoice);
+    musicVoice = null;
+  }
+  if (track !== "none") startTrack(track);
+}
+
+audio.loadSoundFile(MENU_MUSIC_PATH).then((s) => {
+  musicSounds.menu = s;
+  if (currentTrack === "menu" && musicVoice === null) startTrack("menu");
+});
+audio.loadSoundFile(BATTLE_MUSIC_PATH).then((s) => {
+  musicSounds.battle = s;
+  if (currentTrack === "battle" && musicVoice === null) startTrack("battle");
+});
+audio.loadSoundFile(DEATH_MUSIC_PATH).then((s) => {
+  musicSounds.death = s;
+  if (currentTrack === "death" && musicVoice === null) startTrack("death");
 });
 
 let muted = false;

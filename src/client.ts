@@ -12,6 +12,7 @@ import {
   sendSpace,
   updateServerScene,
 } from "./client/net";
+import { switchMusic } from "./client/audio";
 import { createTitleScreen } from "./client/titleScreen";
 import { createOfflineGame } from "./client/offlineGame";
 import { createHpDisplay } from "./client/hpDisplay";
@@ -142,10 +143,15 @@ renderer.setFrameCallback(async (deltaMs: number) => {
   const dt = deltaMs / 1000;
   updateShake(dt);
   if (screen === "title") {
+    switchMusic("menu");
     title.update(dt);
   } else if (screen === "offline") {
-    // Run the "3..2..1..GO!" overlay before unfreezing the fight.
+    // Music: silence during the countdown, battle once live, death track on KO.
     const st = offline.getStatus();
+    switchMusic(
+      st.phase === "starting" ? "none" : st.phase === "ended" ? "death" : "battle",
+    );
+    // Run the "3..2..1..GO!" overlay before unfreezing the fight.
     if (st.phase === "starting") {
       if (!offlineCounting) {
         countdown.start();
@@ -162,6 +168,14 @@ renderer.setFrameCallback(async (deltaMs: number) => {
     syncWinScreen(st.phase === "ended", st.winner, st.endedAt, st.resetMs, dt);
   } else {
     updateServerScene(dt);
+    // Music tracks server phase: lobby = menu, fight = battle, KO = death.
+    switchMusic(
+      netState.serverStatus === "playing"
+        ? "battle"
+        : netState.serverStatus === "ended"
+          ? "death"
+          : "menu",
+    );
     // Visual-only countdown when a fresh online match goes live.
     const playing = netState.serverStatus === "playing";
     if (playing && !onlinePlaying) countdown.start();
