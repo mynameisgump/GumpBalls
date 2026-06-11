@@ -49,8 +49,9 @@ await engine.init();
 export const scene = new Scene();
 export const camera = new PerspectiveCamera(30, engine.aspectRatio, 0.1, 100);
 const CAM_BASE = new Vector3(0, 0.75, 25);
+const LOOK_BASE = new Vector3(0, 0.75, 0);
 camera.position.copy(CAM_BASE);
-camera.lookAt(0, 0.75, 0);
+camera.lookAt(LOOK_BASE);
 engine.setActiveCamera(camera);
 scene.add(camera);
 
@@ -60,22 +61,51 @@ let trauma = 0;
 const SHAKE_MAX = 0.9;
 const SHAKE_DECAY = 2.6; // trauma units per second
 
+// Idle drift: slow summed sines (long periods, no common multiple) give an
+// organic handheld sway that never quite repeats. Tiny amplitudes so it reads
+// as "alive", not nauseating. Position drifts; look target drifts less, for a
+// hint of parallax rotation.
+let camTime = 0;
+const DRIFT_POS_X = 0.16;
+const DRIFT_POS_Y = 0.11;
+const DRIFT_POS_Z = 0.14;
+const DRIFT_LOOK_X = 0.09;
+const DRIFT_LOOK_Y = 0.06;
+
 export function addShake(amount: number) {
   trauma = Math.min(1, trauma + amount);
 }
 
 export function updateShake(dt: number) {
-  if (trauma <= 0) {
-    camera.position.copy(CAM_BASE);
-    return;
+  camTime += dt;
+
+  const ix =
+    (Math.sin(camTime * 0.31) * 0.7 + Math.sin(camTime * 0.13) * 0.3) *
+    DRIFT_POS_X;
+  const iy =
+    (Math.sin(camTime * 0.27) * 0.6 + Math.cos(camTime * 0.17) * 0.4) *
+    DRIFT_POS_Y;
+  const iz = Math.sin(camTime * 0.11) * DRIFT_POS_Z;
+
+  let sx = 0;
+  let sy = 0;
+  if (trauma > 0) {
+    const s = trauma * trauma * SHAKE_MAX;
+    sx = (Math.random() * 2 - 1) * s;
+    sy = (Math.random() * 2 - 1) * s;
+    trauma = Math.max(0, trauma - SHAKE_DECAY * dt);
   }
-  const s = trauma * trauma * SHAKE_MAX;
+
   camera.position.set(
-    CAM_BASE.x + (Math.random() * 2 - 1) * s,
-    CAM_BASE.y + (Math.random() * 2 - 1) * s,
-    CAM_BASE.z,
+    CAM_BASE.x + ix + sx,
+    CAM_BASE.y + iy + sy,
+    CAM_BASE.z + iz,
   );
-  trauma = Math.max(0, trauma - SHAKE_DECAY * dt);
+  camera.lookAt(
+    LOOK_BASE.x + Math.sin(camTime * 0.19) * DRIFT_LOOK_X,
+    LOOK_BASE.y + Math.sin(camTime * 0.23) * DRIFT_LOOK_Y,
+    LOOK_BASE.z,
+  );
 }
 
 scene.add(new AmbientLight(0xffffff, 1.0));

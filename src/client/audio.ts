@@ -24,6 +24,14 @@ const WALL_HIT_PATH = new URL(
   "../../public/WallHit.wav",
   import.meta.url,
 ).pathname;
+const COUNTDOWN_TICK_PATH = new URL(
+  "../../public/StartingCountDown.wav",
+  import.meta.url,
+).pathname;
+const COUNTDOWN_GO_PATH = new URL(
+  "../../public/StartingCountDownStart.wav",
+  import.meta.url,
+).pathname;
 
 const audio = setupAudio({ autoStart: true });
 
@@ -50,6 +58,16 @@ audio.loadSoundFile(DEATH_PATH).then((s) => {
 let wallHit: AudioSound | null = null;
 audio.loadSoundFile(WALL_HIT_PATH).then((s) => {
   wallHit = s;
+});
+
+let countdownTick: AudioSound | null = null;
+audio.loadSoundFile(COUNTDOWN_TICK_PATH).then((s) => {
+  countdownTick = s;
+});
+
+let countdownGo: AudioSound | null = null;
+audio.loadSoundFile(COUNTDOWN_GO_PATH).then((s) => {
+  countdownGo = s;
 });
 
 let musicVoice: AudioVoice | null = null;
@@ -91,6 +109,16 @@ export function playArrowPress() {
 export function playDeath() {
   if (muted || death === null) return;
   audio.play(death, { volume: 1 });
+}
+
+export function playCountdownTick() {
+  if (muted || countdownTick === null) return;
+  audio.play(countdownTick, { volume: 0.9 });
+}
+
+export function playCountdownGo() {
+  if (muted || countdownGo === null) return;
+  audio.play(countdownGo, { volume: 1 });
 }
 
 function playWallHit(impact: number) {

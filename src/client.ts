@@ -16,6 +16,7 @@ import { createTitleScreen } from "./client/titleScreen";
 import { createOfflineGame } from "./client/offlineGame";
 import { createHpDisplay } from "./client/hpDisplay";
 import { createWinScreen } from "./client/winScreen";
+import { createCountdown } from "./client/countdown";
 import type { DirKey, Slot } from "./shared";
 
 const ONLINE_RESET_MS = 5000;
@@ -25,8 +26,12 @@ const title = createTitleScreen(font);
 const offline = createOfflineGame();
 const hpDisplay = createHpDisplay(font);
 const winScreen = createWinScreen(font);
+const countdown = createCountdown(font);
 
 let winShownEndedAt = 0;
+// Tracks fight-start transitions so we fire one countdown per round.
+let offlineCounting = false;
+let onlinePlaying = false;
 
 type Screen = "title" | "online" | "offline";
 let screen: Screen = "title";
@@ -39,7 +44,10 @@ function showGame() {
   hpDisplay.reset();
   hpDisplay.show();
   winScreen.hide();
+  countdown.hide();
   winShownEndedAt = 0;
+  offlineCounting = false;
+  onlinePlaying = false;
 }
 
 function startOnline() {
@@ -136,14 +144,29 @@ renderer.setFrameCallback(async (deltaMs: number) => {
   if (screen === "title") {
     title.update(dt);
   } else if (screen === "offline") {
+    // Run the "3..2..1..GO!" overlay before unfreezing the fight.
+    const st = offline.getStatus();
+    if (st.phase === "starting") {
+      if (!offlineCounting) {
+        countdown.start();
+        offlineCounting = true;
+      }
+      if (!countdown.update(dt)) offline.beginPlay();
+    } else {
+      offlineCounting = false;
+    }
     offline.update(dt);
     updateParticles(dt);
     const [h1, h2] = offline.getHps();
     hpDisplay.update(h1, h2);
-    const st = offline.getStatus();
     syncWinScreen(st.phase === "ended", st.winner, st.endedAt, st.resetMs, dt);
   } else {
     updateServerScene(dt);
+    // Visual-only countdown when a fresh online match goes live.
+    const playing = netState.serverStatus === "playing";
+    if (playing && !onlinePlaying) countdown.start();
+    onlinePlaying = playing;
+    if (countdown.isActive()) countdown.update(dt);
     updateParticles(dt);
     if (netState.lastSnap) {
       hpDisplay.update(

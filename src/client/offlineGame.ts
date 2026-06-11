@@ -31,7 +31,7 @@ const RESET_MS = 5000;
 export function createOfflineGame() {
   let balls: Ball[] = [makeBall(0), makeBall(1)];
   const botState = makeBotState();
-  let status: "playing" | "ended" = "playing";
+  let status: "starting" | "playing" | "ended" = "starting";
   let winner: Slot | undefined;
   let endedAt = 0;
   let hitstopUntil = 0;
@@ -41,7 +41,7 @@ export function createOfflineGame() {
   function reset() {
     balls = [makeBall(0), makeBall(1)];
     resetBotState(botState);
-    status = "playing";
+    status = "starting";
     winner = undefined;
     endedAt = 0;
     hitstopUntil = 0;
@@ -67,6 +67,14 @@ export function createOfflineGame() {
     active = false;
   }
 
+  // Called by the countdown overlay once "3..2..1..GO!" finishes.
+  function beginPlay() {
+    if (status === "starting") {
+      status = "playing";
+      accum = 0;
+    }
+  }
+
   function input(name: DirKey | "space", shift: boolean) {
     if (!active || status !== "playing") return;
     const b = balls[0]!;
@@ -80,7 +88,8 @@ export function createOfflineGame() {
 
     if (status === "ended" && Date.now() - endedAt > RESET_MS) reset();
 
-    if (Date.now() >= hitstopUntil) {
+    // Frozen at spawn while the countdown plays; client flips us to "playing".
+    if (status !== "starting" && Date.now() >= hitstopUntil) {
       accum += dt;
       while (accum >= FIXED_DT) {
         if (status === "playing") {
@@ -155,6 +164,7 @@ export function createOfflineGame() {
   return {
     show,
     hide,
+    beginPlay,
     input,
     update,
     isActive: () => active,

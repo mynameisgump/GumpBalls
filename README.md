@@ -75,3 +75,6 @@ Cheapest first pick: 2-3 stat-twist classes. Parry + Bomber best ability additio
 - Dynamic camera
 - Add Arrow Tick Sound
 -
+
+- King of the hill tournemant
+-
