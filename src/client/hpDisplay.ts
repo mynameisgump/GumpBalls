@@ -63,6 +63,9 @@ export function createHpDisplay(font: Font) {
     s.textGroup = null;
   }
 
+  // Slot accent colors; overridden per-name in multiplayer via update().
+  const accents: [number, number] = [0xff5533, 0x33ff66];
+
   function rebuild(s: SlotEntry, hp: number) {
     disposeText(s);
     const label = `${s.name}  ${hp}`;
@@ -77,13 +80,23 @@ export function createHpDisplay(font: Font) {
     s.group.add(text.group);
   }
 
-  function update(p1Hp: number, p2Hp: number) {
+  function update(
+    p1Hp: number,
+    p2Hp: number,
+    accent0?: number,
+    accent1?: number,
+  ) {
+    if (accent0 !== undefined) accents[0] = accent0;
+    if (accent1 !== undefined) accents[1] = accent1;
     const hps: [number, number] = [
       Math.max(0, Math.round(p1Hp)),
       Math.max(0, Math.round(p2Hp)),
     ];
     for (let i = 0; i < 2; i++) {
       const s = slots[i as Slot];
+      // Text reads as the player's color (ball-matched in multiplayer).
+      s.mat.color.setHex(accents[i]);
+      s.mat.emissive.setHex(accents[i]);
       if (s.lastHp !== hps[i]) {
         s.lastHp = hps[i];
         rebuild(s, hps[i]);

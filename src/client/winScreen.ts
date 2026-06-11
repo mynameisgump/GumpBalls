@@ -68,14 +68,15 @@ export function createWinScreen(font: Font) {
   let visible = false;
   let t = 0;
 
-  function show(winner: Slot) {
-    const accent = P_COLORS[winner];
+  function show(winner: Slot, opts?: { accent?: number; name?: string }) {
+    const accent = opts?.accent ?? P_COLORS[winner];
     winMat.color.setHex(accent);
     winMat.emissive.setHex(accent);
 
     disposeGroup(winGroup);
+    const label = opts?.name ? `${opts.name} WINS` : `P${winner + 1} WINS`;
     const text = makeSpacedText(
-      `P${winner + 1} WINS`,
+      label,
       { font, ...WIN_OPTS },
       winMat,
       0.2,

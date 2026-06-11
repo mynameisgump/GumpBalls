@@ -20,7 +20,7 @@ import { createWinScreen } from "./client/winScreen";
 import { createCountdown } from "./client/countdown";
 import { createNameEntry } from "./client/nameEntry";
 import { createTournamentUi } from "./client/tournamentUi";
-import type { DirKey, Slot } from "./shared";
+import { playerColor, type DirKey, type Slot } from "./shared";
 
 const ONLINE_RESET_MS = 5000;
 
@@ -142,11 +142,13 @@ function syncWinScreen(
   endedAt: number,
   resetMs: number,
   dt: number,
+  winnerName?: string,
 ) {
   if (ended && winner !== undefined) {
     if (winShownEndedAt !== endedAt) {
       winShownEndedAt = endedAt;
-      winScreen.show(winner);
+      const accent = winnerName ? playerColor(winnerName).base : undefined;
+      winScreen.show(winner, { accent, name: winnerName });
     }
     const remaining = resetMs - (Date.now() - endedAt);
     winScreen.update(remaining, dt);
@@ -211,18 +213,26 @@ renderer.setFrameCallback(async (deltaMs: number) => {
       dt,
     );
     updateParticles(dt);
+    // Color HP labels to match each fighter's username-derived ball color.
+    const champ = netState.roster?.champion;
+    const chall = netState.roster?.challenger;
     if (netState.lastSnap) {
       hpDisplay.update(
         netState.lastSnap[0].hp,
         netState.lastSnap[1].hp,
+        champ ? playerColor(champ.name).base : undefined,
+        chall ? playerColor(chall.name).base : undefined,
       );
     }
+    const winnerName =
+      netState.winner === 0 ? champ?.name : netState.winner === 1 ? chall?.name : undefined;
     syncWinScreen(
       netState.serverStatus === "ended",
       netState.winner,
       netState.endedAt,
       ONLINE_RESET_MS,
       dt,
+      winnerName,
     );
   }
   await engine.drawScene(scene, fb.frameBuffer, deltaMs);

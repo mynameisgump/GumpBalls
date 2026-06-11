@@ -5,7 +5,7 @@ import {
   BufferGeometry,
 } from "three";
 import type { Font } from "three/examples/jsm/loaders/FontLoader.js";
-import { CEIL_Y, ROOM_W, BALL_R, type MatchStatus } from "../shared";
+import { CEIL_Y, ROOM_W, BALL_R, playerColor, type MatchStatus } from "../shared";
 import type { Roster } from "./net";
 import { scene } from "./scene";
 import { ballMeshes } from "./balls";
@@ -19,7 +19,6 @@ const LIST_MAX = 8;
 
 const GOLD = 0xffd23a;
 const SILVER = 0xcfd2d6;
-const SELF = 0x33ff66;
 const DIM = 0x8893a0;
 
 const BANNER_OPTS = {
@@ -69,8 +68,12 @@ export function createTournamentUi(font: Font) {
   const root = new Group();
   scene.add(root);
 
-  const bannerMat = mat(0xffffff, 0.7);
-  let bannerGroup: Group | null = null;
+  // Banner is built from independently-colored segments (champion name, "VS",
+  // challenger name) so each name can carry its own player color.
+  const bannerRoot = new Group();
+  bannerRoot.position.y = BANNER_Y;
+  root.add(bannerRoot);
+  const bannerMats: MeshStandardMaterial[] = [];
 
   // Next-up list lives in its own subtree so we can wipe/rebuild it wholesale.
   const listRoot = new Group();
@@ -89,23 +92,43 @@ export function createTournamentUi(font: Font) {
   let t = 0;
   let visible = false;
 
+  function clearBanner() {
+    bannerRoot.traverse((o) => {
+      if (o instanceof Mesh) (o.geometry as BufferGeometry).dispose?.();
+    });
+    bannerRoot.clear();
+    bannerMats.length = 0;
+  }
+
   function rebuildBanner(roster: Roster | null) {
-    disposeGroup(bannerGroup);
-    bannerGroup = null;
+    clearBanner();
     const champ = roster?.champion;
     const chall = roster?.challenger;
-    const champStr = champ ? `${champ.name} W${roster!.streak}` : "NO CHAMPION";
-    const challStr = chall ? chall.name : "WAITING";
-    const text = makeSpacedText(
-      `${champStr}  VS  ${challStr}`,
-      { font, ...BANNER_OPTS },
-      bannerMat,
-      0.1,
-      0.5,
-    );
-    text.group.position.set(0, BANNER_Y, 0);
-    root.add(text.group);
-    bannerGroup = text.group;
+    const segs = [
+      {
+        text: champ ? `${champ.name} W${roster!.streak}` : "NO CHAMPION",
+        color: champ ? playerColor(champ.name).base : 0xffffff,
+      },
+      { text: "VS", color: 0xffffff },
+      {
+        text: chall ? chall.name : "WAITING",
+        color: chall ? playerColor(chall.name).base : DIM,
+      },
+    ];
+    const GAP = 0.5;
+    const groups: Group[] = [];
+    let cursor = 0;
+    for (const s of segs) {
+      const m = mat(s.color, 0.7);
+      bannerMats.push(m);
+      const t = makeSpacedText(s.text, { font, ...BANNER_OPTS }, m, 0.1, 0.5);
+      t.group.position.x = cursor + t.width / 2;
+      cursor += t.width + GAP;
+      bannerRoot.add(t.group);
+      groups.push(t.group);
+    }
+    const total = cursor - GAP;
+    for (const g of groups) g.position.x -= total / 2; // center the row
   }
 
   function clearList() {
@@ -134,7 +157,8 @@ export function createTournamentUi(font: Font) {
       const p = q[i];
       const me = p.id === myId;
       const label = `${i + 1}. ${p.name}${me ? " (YOU)" : ""}`;
-      addListLine(label, me ? SELF : SILVER, LIST_TOP_Y - LIST_STEP * (i + 1));
+      // Each queued name in its own username color, matching their ball.
+      addListLine(label, playerColor(p.name).base, LIST_TOP_Y - LIST_STEP * (i + 1));
     }
     if (q.length > shown) {
       addListLine(`+${q.length - shown} MORE`, DIM, LIST_TOP_Y - LIST_STEP * (shown + 1));
@@ -146,6 +170,10 @@ export function createTournamentUi(font: Font) {
     tagGroups[slot] = null;
     tagNames[slot] = name;
     if (!name) return;
+    // Tag color matches the ball: derived from the player's username.
+    const c = playerColor(name).base;
+    tagMats[slot].color.setHex(c);
+    tagMats[slot].emissive.setHex(c);
     const text = makeSpacedText(name, { font, ...TAG_OPTS }, tagMats[slot], 0.08, 0.5);
     tagGroups[slot] = text.group;
     root.add(text.group);
@@ -188,7 +216,8 @@ export function createTournamentUi(font: Font) {
       if ((chall?.name ?? "") !== tagNames[1]) rebuildTag(1, chall?.name ?? "");
     }
 
-    bannerMat.emissiveIntensity = 0.7 + Math.sin(t * 3) * 0.2;
+    const pulse = 0.7 + Math.sin(t * 3) * 0.2;
+    for (const m of bannerMats) m.emissiveIntensity = pulse;
 
     // Name tags float above their ball — only while the countdown is running.
     const showTags = phase === "starting";

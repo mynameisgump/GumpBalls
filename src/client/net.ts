@@ -10,6 +10,7 @@ import {
   decodeServerMsg,
   encodeClientMsg,
   stepBallSolo,
+  playerColor,
   type Ball,
   type BallSnap,
   type ClientMsg,
@@ -401,7 +402,13 @@ export function updateServerScene(dt: number) {
     const f = fx[i];
     if (f.flash > 0) f.flash = Math.max(0, f.flash - dt / FLASH_DECAY);
     if (f.punch > 0) f.punch = Math.max(0, f.punch - dt / PUNCH_DECAY);
-    const base = sCharging ? P_CHARGE[i] : P_COLORS[i];
+    // Ball color is derived from the fighter's username (slot 0 = champion,
+    // slot 1 = challenger); fall back to the default slot colors if unknown.
+    const fighter = i === 0 ? netState.roster?.champion : netState.roster?.challenger;
+    const col = fighter ? playerColor(fighter.name) : null;
+    const base = sCharging
+      ? (col ? col.charge : P_CHARGE[i])
+      : (col ? col.base : P_COLORS[i]);
     const mat = ballMats[i];
     mat.color.setHex(base);
     mat.emissiveIntensity = f.flash * 3;
