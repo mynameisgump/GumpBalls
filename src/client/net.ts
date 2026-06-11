@@ -13,7 +13,10 @@ import {
   type Ball,
   type BallSnap,
   type ClientMsg,
+  type ControlServerMsg,
   type DirKey,
+  type MatchStatus,
+  type PlayerInfo,
   type Slot,
 } from "../shared";
 import {
@@ -43,24 +46,35 @@ function parseServerUrl(): string {
 }
 export const SERVER_URL = parseServerUrl();
 
+export type Roster = {
+  champion: PlayerInfo | null;
+  challenger: PlayerInfo | null;
+  streak: number;
+  queue: PlayerInfo[];
+};
+
 export type NetState = {
   mySlot: Slot | -1;
+  myId: number;
   lastSnap: BallSnap[] | null;
-  serverStatus: "waiting" | "playing" | "ended";
+  serverStatus: MatchStatus;
   winner: Slot | undefined;
   connected: boolean;
   endedAt: number;
   lastKey: string;
+  roster: Roster | null;
 };
 
 export const netState: NetState = {
   mySlot: -1,
+  myId: 0,
   lastSnap: null,
   serverStatus: "waiting",
   winner: undefined,
   connected: false,
   endedAt: 0,
   lastKey: "-",
+  roster: null,
 };
 
 const FIXED_DT = 1 / TICK_HZ;
@@ -91,6 +105,7 @@ let nextSeq = 1;
 
 let ws: WebSocket | null = null;
 let connectStarted = false;
+let myName = "PLAYER";
 
 function snapToLocal(s: BallSnap): Ball {
   return {
@@ -184,10 +199,17 @@ function resetFxLocal() {
   for (const m of ballMeshes) m.scale.setScalar(1);
 }
 
-export function connect() {
+export function connect(name: string) {
+  myName = name;
   if (connectStarted) return;
   connectStarted = true;
   doConnect();
+}
+
+function sendJoin() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ t: "join", name: myName }));
+  }
 }
 
 function doConnect() {
@@ -195,6 +217,7 @@ function doConnect() {
   ws.binaryType = "arraybuffer";
   ws.onopen = () => {
     netState.connected = true;
+    sendJoin();
   };
   ws.onclose = () => {
     netState.connected = false;
@@ -204,6 +227,10 @@ function doConnect() {
     // close handler will retry
   };
   ws.onmessage = (ev) => {
+    if (typeof ev.data === "string") {
+      handleControl(ev.data);
+      return;
+    }
     if (!(ev.data instanceof ArrayBuffer)) return;
     const msg = decodeServerMsg(ev.data);
     if (!msg) return;
@@ -292,6 +319,25 @@ function doConnect() {
       }
     }
   };
+}
+
+function handleControl(raw: string) {
+  let msg: ControlServerMsg;
+  try {
+    msg = JSON.parse(raw) as ControlServerMsg;
+  } catch {
+    return;
+  }
+  if (msg.t === "ident") {
+    netState.myId = msg.id;
+  } else if (msg.t === "roster") {
+    netState.roster = {
+      champion: msg.champion,
+      challenger: msg.challenger,
+      streak: msg.streak,
+      queue: msg.queue,
+    };
+  }
 }
 
 function sendMsg(m: ClientMsg) {

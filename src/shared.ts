@@ -27,6 +27,23 @@ export const PORT = 7777;
 
 export type Slot = 0 | 1;
 
+export type MatchStatus = "waiting" | "playing" | "ended" | "starting";
+
+// Tournament control plane. These ride the same socket as JSON text frames
+// (the binary codec below stays reserved for the hot snap/input path), so
+// names — which are variable-length — never touch the fixed-width encoder.
+export type PlayerInfo = { id: number; name: string };
+export type ControlServerMsg =
+  | { t: "ident"; id: number }
+  | {
+      t: "roster";
+      champion: PlayerInfo | null;
+      challenger: PlayerInfo | null;
+      streak: number;
+      queue: PlayerInfo[];
+    };
+export type ControlClientMsg = { t: "join"; name: string };
+
 export type BallSnap = {
   x: number;
   y: number;
@@ -45,7 +62,7 @@ export type ServerMsg =
       tick: number;
       ack: [number, number];
       balls: BallSnap[];
-      status: "waiting" | "playing" | "ended";
+      status: MatchStatus;
       winner?: Slot;
     }
   | { t: "hit"; attacker: Slot; victim: Slot; dmg: number; closing: number };
@@ -275,8 +292,8 @@ export const DIR_INDEX: Record<DirKey, number> = DIR_LIST.reduce(
   {} as Record<DirKey, number>,
 );
 
-const STATUS_CODE = { waiting: 0, playing: 1, ended: 2 } as const;
-const STATUS_NAME = ["waiting", "playing", "ended"] as const;
+const STATUS_CODE = { waiting: 0, playing: 1, ended: 2, starting: 3 } as const;
+const STATUS_NAME = ["waiting", "playing", "ended", "starting"] as const;
 
 const BALL_BYTES = 4 * 7 + 1;
 const SNAP_HEADER_BYTES = 1 + 1 + 1 + 4 + 4 + 4;
@@ -354,7 +371,7 @@ export function decodeServerMsg(data: ArrayBuffer): ServerMsg | null {
       let o = 1;
       const sc = v.getUint8(o);
       o += 1;
-      if (sc > 2) return null;
+      if (sc > 3) return null;
       const status = STATUS_NAME[sc];
       const w = v.getUint8(o);
       o += 1;

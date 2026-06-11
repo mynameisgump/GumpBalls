@@ -18,6 +18,8 @@ import { createOfflineGame } from "./client/offlineGame";
 import { createHpDisplay } from "./client/hpDisplay";
 import { createWinScreen } from "./client/winScreen";
 import { createCountdown } from "./client/countdown";
+import { createNameEntry } from "./client/nameEntry";
+import { createTournamentUi } from "./client/tournamentUi";
 import type { DirKey, Slot } from "./shared";
 
 const ONLINE_RESET_MS = 5000;
@@ -28,13 +30,15 @@ const offline = createOfflineGame();
 const hpDisplay = createHpDisplay(font);
 const winScreen = createWinScreen(font);
 const countdown = createCountdown(font);
+const nameEntry = createNameEntry(font);
+const tournamentUi = createTournamentUi(font);
 
 let winShownEndedAt = 0;
 // Tracks fight-start transitions so we fire one countdown per round.
 let offlineCounting = false;
-let onlinePlaying = false;
+let onlineStarting = false;
 
-type Screen = "title" | "online" | "offline";
+type Screen = "title" | "name" | "online" | "offline";
 let screen: Screen = "title";
 
 title.show();
@@ -48,14 +52,21 @@ function showGame() {
   countdown.hide();
   winShownEndedAt = 0;
   offlineCounting = false;
-  onlinePlaying = false;
+  onlineStarting = false;
 }
 
-function startOnline() {
-  screen = "online";
+function startNameEntry() {
+  screen = "name";
   title.hide();
+  nameEntry.show();
+}
+
+function startOnline(name: string) {
+  screen = "online";
+  nameEntry.hide();
   showGame();
-  connect();
+  tournamentUi.show();
+  connect(name);
 }
 
 function startOffline() {
@@ -96,8 +107,14 @@ renderer.keyInput.on("keypress", (k: KeyEvent) => {
   if (screen === "title") {
     const choice = title.onKey(k.name);
     if (choice === "single") startOffline();
-    else if (choice === "multi") startOnline();
+    else if (choice === "multi") startNameEntry();
     else if (choice === "quit") quit();
+    return;
+  }
+
+  if (screen === "name") {
+    const r = nameEntry.onKey(k.name, !!k.shift);
+    if (r) startOnline(r.submit);
     return;
   }
 
@@ -145,6 +162,9 @@ renderer.setFrameCallback(async (deltaMs: number) => {
   if (screen === "title") {
     switchMusic("menu");
     title.update(dt);
+  } else if (screen === "name") {
+    switchMusic("menu");
+    nameEntry.update(dt);
   } else if (screen === "offline") {
     // Music: silence during the countdown, battle once live, death track on KO.
     const st = offline.getStatus();
@@ -168,19 +188,28 @@ renderer.setFrameCallback(async (deltaMs: number) => {
     syncWinScreen(st.phase === "ended", st.winner, st.endedAt, st.resetMs, dt);
   } else {
     updateServerScene(dt);
-    // Music tracks server phase: lobby = menu, fight = battle, KO = death.
+    // Music tracks server phase: silence during the countdown, battle once
+    // live, death on KO, menu in the lobby.
     switchMusic(
-      netState.serverStatus === "playing"
-        ? "battle"
-        : netState.serverStatus === "ended"
-          ? "death"
-          : "menu",
+      netState.serverStatus === "starting"
+        ? "none"
+        : netState.serverStatus === "playing"
+          ? "battle"
+          : netState.serverStatus === "ended"
+            ? "death"
+            : "menu",
     );
-    // Visual-only countdown when a fresh online match goes live.
-    const playing = netState.serverStatus === "playing";
-    if (playing && !onlinePlaying) countdown.start();
-    onlinePlaying = playing;
+    // Server owns the countdown phase; fire the overlay when it begins.
+    const starting = netState.serverStatus === "starting";
+    if (starting && !onlineStarting) countdown.start();
+    onlineStarting = starting;
     if (countdown.isActive()) countdown.update(dt);
+    tournamentUi.update(
+      netState.roster,
+      netState.myId,
+      netState.serverStatus,
+      dt,
+    );
     updateParticles(dt);
     if (netState.lastSnap) {
       hpDisplay.update(
